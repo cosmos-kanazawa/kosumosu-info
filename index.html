@@ -7,31 +7,31 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#fff0f5;
+  --bg:#f4f3f0;
   --white:#ffffff;
-  --border:#f0c0d0;
-  --text:#6b1a3a;
-  --text2:#a0547a;
-  --text3:#d4a0b8;
-  --red:#c0394a;
+  --border:#ddddd8;
+  --text:#1a1917;
+  --text2:#6b6b64;
+  --text3:#adadaa;
+  --red:#c0392b;
   --green:#1a7340;
-  --blue:#8a1a5a;
-  --yellow:#7a3a5a;
+  --blue:#1a4a8a;
+  --yellow:#7a5a00;
   --r:8px;
 }
 body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-.hdr{background:#fce4ec;border-bottom:2px solid var(--text);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.hdr{background:var(--white);border-bottom:2px solid var(--text);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .hdr-logo{font-size:18px;font-weight:800}
 .hdr-logo small{font-size:12px;font-weight:400;color:var(--text2);margin-left:8px}
 .hdr-info{text-align:right}
 .hdr-j{font-size:13px;font-weight:700}
 .hdr-r{font-size:12px;color:var(--text2);margin-top:1px}
-.gas-bar{background:#fce4ec;border-bottom:1px solid var(--border);padding:10px 24px;display:flex;gap:8px;align-items:center}
+.gas-bar{background:var(--white);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;gap:8px;align-items:center}
 .gas-bar input{flex:1;padding:8px 12px;font-size:14px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;color:var(--text)}
 .gas-bar input:focus{border-color:var(--text)}
 .gas-bar button{padding:8px 18px;font-size:14px;font-weight:700;background:var(--text);color:#fff;border:none;border-radius:var(--r);cursor:pointer}
 .gs{font-size:12px;padding:5px 12px;border-radius:20px;white-space:nowrap}
-.gs-wait{background:#fce4ec;color:var(--text3)}
+.gs-wait{background:#eee;color:var(--text3)}
 .gs-ok{background:#d4edda;color:#155724}
 .gs-err{background:#f8d7da;color:#721c24}
 .no-access{max-width:360px;margin:100px auto;text-align:center;padding:24px}
@@ -39,10 +39,10 @@ body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif
 .no-access h2{font-size:22px;font-weight:800;margin-bottom:12px}
 .no-access p{font-size:15px;color:var(--text2);line-height:1.8}
 .wrap{max-width:700px;margin:0 auto;padding:20px 16px 100px}
-.tabs{display:flex;background:var(--white);border:2px solid #c0394a;border-radius:var(--r);overflow:hidden;margin-bottom:20px}
+.tabs{display:flex;background:var(--white);border:2px solid var(--text);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
 .tab{flex:1;padding:14px 4px;font-size:15px;font-weight:700;border:none;background:none;color:var(--text2);cursor:pointer;border-right:1.5px solid var(--border);transition:all 0.1s;text-align:center;line-height:1.3}
 .tab:last-child{border-right:none}
-.tab.active{background:#c0394a;color:#fff}
+.tab.active{background:var(--text);color:#fff}
 .tab.hidden{display:none}
 .card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:10px}
 .card.imp{border-left:5px solid var(--red)}
@@ -55,26 +55,35 @@ body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif
 .card-img{margin-top:12px}
 .card-img img{max-width:100%;border-radius:var(--r);border:1px solid var(--border);cursor:pointer}
 .card-img a{font-size:15px;color:var(--blue);text-decoration:underline;font-weight:600}
+.card-summary{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.card-summary-left{flex:1;min-width:0}
+.card-date{font-size:12px;color:var(--text3);margin-bottom:3px}
+.card-summary-title{font-size:17px;font-weight:800;line-height:1.4;color:var(--text)}
+.card-summary-meta{font-size:13px;color:var(--text2);margin-top:3px}
+.card-chevron{font-size:18px;color:var(--text3);flex-shrink:0;transition:transform 0.2s}
+.card-chevron.open{transform:rotate(180deg)}
+.card-detail{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.card-detail.open{display:block}
 .bdg{display:inline-block;font-size:12px;padding:3px 10px;border-radius:4px;font-weight:700;white-space:nowrap}
 .b-業務連絡{background:#e8e0f8;color:var(--blue)}
 .b-業務改善{background:#fff3cd;color:var(--yellow)}
-.b-その他{background:#fce4ec;color:#555}
+.b-その他{background:#eee;color:#555}
 .b-imp{background:#f8d7da;color:var(--red)}
 .b-notice{background:#dbeafe;color:var(--blue)}
 .btn-del{padding:5px 12px;font-size:12px;font-weight:700;background:#fff;color:var(--red);border:1.5px solid var(--red);border-radius:var(--r);cursor:pointer;white-space:nowrap;flex-shrink:0}
 .btn-del:hover{background:var(--red);color:#fff}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .chip{font-size:14px;padding:7px 16px;border:1.5px solid var(--border);border-radius:4px;cursor:pointer;background:var(--white);color:var(--text2);font-weight:600;transition:all 0.1s}
-.chip.on{background:#c0394a;color:#fff;border-color:#c0394a}
+.chip.on{background:var(--text);color:#fff;border-color:var(--text)}
 .form-box{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:22px}
 .frow{margin-bottom:18px}
 .flabel{font-size:13px;font-weight:800;color:var(--text2);margin-bottom:7px;display:block;letter-spacing:0.05em}
-input[type=text],select,textarea{width:100%;padding:12px 14px;font-size:16px;border:1.5px solid var(--border);border-radius:var(--r);background:#fff5f8;color:var(--text);outline:none;transition:border 0.1s;-webkit-appearance:none;appearance:none}
+input[type=text],select,textarea{width:100%;padding:12px 14px;font-size:16px;border:1.5px solid var(--border);border-radius:var(--r);background:#fafaf8;color:var(--text);outline:none;transition:border 0.1s;-webkit-appearance:none;appearance:none}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
 input[type=text]:focus,select:focus,textarea:focus{border-color:var(--text);background:#fff}
 textarea{resize:vertical;min-height:110px;line-height:1.7}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.img-upload{border:2px dashed var(--border);border-radius:var(--r);padding:20px;text-align:center;cursor:pointer;background:#fff5f8;position:relative}
+.img-upload{border:2px dashed var(--border);border-radius:var(--r);padding:20px;text-align:center;cursor:pointer;background:#fafaf8;position:relative}
 .img-upload:hover{border-color:var(--text)}
 .img-upload input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .img-upload-label{font-size:15px;color:var(--text2);font-weight:600;pointer-events:none}
@@ -85,15 +94,15 @@ textarea{resize:vertical;min-height:110px;line-height:1.7}
 .check-row{display:flex;align-items:center;gap:10px;padding:10px 0}
 .check-row input[type=checkbox]{width:22px;height:22px;cursor:pointer;flex-shrink:0;accent-color:var(--text)}
 .check-row label{font-size:16px;font-weight:600;cursor:pointer}
-.btn-submit{width:100%;padding:15px;font-size:17px;font-weight:800;background:#c0394a;color:#fff;border:none;border-radius:var(--r);cursor:pointer;letter-spacing:0.04em;margin-top:4px}
+.btn-submit{width:100%;padding:15px;font-size:17px;font-weight:800;background:var(--text);color:#fff;border:none;border-radius:var(--r);cursor:pointer;letter-spacing:0.04em;margin-top:4px}
 .btn-submit:disabled{opacity:0.4;cursor:not-allowed}
 .msg-ok{font-size:15px;color:var(--green);background:#d4edda;padding:12px 16px;border-radius:var(--r);margin-top:12px;display:none;font-weight:600}
 .msg-err{font-size:15px;color:var(--red);background:#f8d7da;padding:12px 16px;border-radius:var(--r);margin-top:12px;display:none}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
 .stat{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:14px;text-align:center}
-.stat-n{font-size:30px;font-weight:800;line-height:1;color:#c0394a}
+.stat-n{font-size:30px;font-weight:800;line-height:1}
 .stat-l{font-size:13px;color:var(--text2);margin-top:5px;font-weight:600}
-.shead{font-size:14px;font-weight:800;color:var(--text2);letter-spacing:0.06em;padding-bottom:10px;border-bottom:2px solid #c0394a;margin-bottom:12px;margin-top:24px;display:flex;align-items:center;gap:8px}
+.shead{font-size:14px;font-weight:800;color:var(--text2);letter-spacing:0.06em;padding-bottom:10px;border-bottom:2px solid var(--text);margin-bottom:12px;margin-top:24px;display:flex;align-items:center;gap:8px}
 .shead:first-child{margin-top:0}
 .rdot{width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block;flex-shrink:0}
 .note-box{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:12px 16px;font-size:14px;color:var(--text2);margin-bottom:16px;font-weight:600}
@@ -485,18 +494,28 @@ function imgHtml(item){
 
 function makeCard(p, showDel=false){
   const imp=p.importance==='important';
-  const delBtn=showDel?`<button class="btn-del" onclick="deletePost('${p.id}')">削除</button>`:'';
+  const delBtn=showDel?`<button class="btn-del" onclick="event.stopPropagation();deletePost('${p.id}')">削除</button>`:'';
+  const uid='card-'+p.id;
   return `<div class="card${imp?' imp':''}">
-    <div class="card-top">
-      ${imp?'<span class="bdg b-imp">★ 重要</span>':''}
-      ${p.category?`<span class="bdg b-${p.category}">${p.category}</span>`:''}
-      <span class="card-title">${p.title}</span>
+    <div class="card-summary" onclick="toggleCard('${uid}')">
+      <div class="card-summary-left">
+        <div class="card-date">${p.date}　共有：${p.share}</div>
+        <div class="card-summary-title">
+          ${imp?'<span class="bdg b-imp" style="font-size:11px;margin-right:4px">★ 重要</span>':''}
+          ${p.category?`<span class="bdg b-${p.category}" style="font-size:11px;margin-right:4px">${p.category}</span>`:''}
+          ${p.title}
+        </div>
+        <div class="card-summary-meta">${p.poster}（${p.role}）・${p.jigyosho}</div>
+      </div>
+      <div class="card-chevron" id="chev-${uid}">▼</div>
     </div>
-    <div class="card-body">${p.body}</div>
-    ${imgHtml(p)}
-    <div class="card-foot">
-      <div class="card-foot-info">${p.poster}（${p.role}）・${p.jigyosho}・${p.date}・共有：${p.share}</div>
-      ${delBtn}
+    <div class="card-detail" id="${uid}">
+      <div class="card-body">${p.body}</div>
+      ${imgHtml(p)}
+      <div class="card-foot">
+        <div class="card-foot-info">${p.poster}（${p.role}）・${p.jigyosho}・${p.date}</div>
+        ${delBtn}
+      </div>
     </div>
   </div>`;
 }
@@ -603,6 +622,15 @@ function showTab(t){
 function setFilter(el,val){
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
   el.classList.add('on'); bFilter=val; renderBoard();
+}
+
+function toggleCard(uid){
+  const detail=document.getElementById(uid);
+  const chev=document.getElementById('chev-'+uid);
+  if(!detail) return;
+  const isOpen=detail.classList.contains('open');
+  detail.classList.toggle('open',!isOpen);
+  if(chev) chev.classList.toggle('open',!isOpen);
 }
 
 initFromURL();
