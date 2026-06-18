@@ -503,7 +503,7 @@ function makeCard(p, showDel=false){
   const delBtn=showDel?`<button class="btn-del" onclick="event.stopPropagation();deletePost('${p.id}')">削除</button>`:'';
   const uid='card-'+p.id;
   return `<div class="card${imp?' imp':''}">
-    <div class="card-summary" onclick="toggleCard('${uid}')">
+    <div class="card-summary" onclick="toggleCard(this)">
       <div class="card-summary-left">
         <div class="card-date">${p.date}　共有：${p.share}</div>
         <div class="card-summary-title">
@@ -513,9 +513,9 @@ function makeCard(p, showDel=false){
         </div>
         <div class="card-summary-meta">${p.poster}（${p.role}）・${p.jigyosho}</div>
       </div>
-      <div class="card-chevron" id="chev-${uid}">▼</div>
+      <div class="card-chevron">▼</div>
     </div>
-    <div class="card-detail" id="${uid}">
+    <div class="card-detail">
       <div class="card-body">${p.body}</div>
       ${imgHtml(p)}
       <div class="card-foot">
@@ -630,9 +630,11 @@ function setFilter(el,val){
   el.classList.add('on'); bFilter=val; renderBoard();
 }
 
-function toggleCard(uid){
-  const detail=document.getElementById(uid);
-  const chev=document.getElementById('chev-'+uid);
+function toggleCard(el){
+  const card=el.closest('.card');
+  if(!card) return;
+  const detail=card.querySelector('.card-detail');
+  const chev=card.querySelector('.card-chevron');
   if(!detail) return;
   const isOpen=detail.classList.contains('open');
   detail.classList.toggle('open',!isOpen);
