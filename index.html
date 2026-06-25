@@ -414,8 +414,8 @@ function loadFromGAS(){
   if(!gasUrl) return;
   fetch(gasUrl).then(r=>r.json()).then(d=>{
     if(d.status==='ok'){
-      if(d.posts)   posts=d.posts;
-      if(d.notices) notices=d.notices;
+      if(d.posts) posts=d.posts.map((p,i)=>({...p, id:p.id||p['投稿ID']||('gas-'+i)}));
+      if(d.notices) notices=d.notices.map((n,i)=>({...n, id:n.id||n['ID']||('gasn-'+i)}));
       renderCurrent();
     }
   }).catch(()=>{});
