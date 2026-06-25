@@ -123,6 +123,8 @@ textarea{resize:vertical;min-height:110px;line-height:1.7}
 .read-btn{font-size:14px;font-weight:700;padding:6px 14px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;color:var(--text2)}
 .read-btn.done{background:#d4edda;border-color:#1a7340;color:#1a7340}
 .read-list{font-size:12px;color:var(--text3);margin-top:4px}
+.new-badge{display:inline-block;font-size:11px;font-weight:800;background:#c0394a;color:#fff;padding:2px 7px;border-radius:4px;margin-right:6px;vertical-align:middle;letter-spacing:0.05em}
+.card.unread{background:#fff5f8}
 .comment-area{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
 .comment-head{font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px}
 .comment-item{background:#fff5f8;border-radius:var(--r);padding:8px 12px;margin-bottom:6px;font-size:14px}
@@ -299,6 +301,9 @@ const ACCESS_MAP={
   'zb6pi9':{jigyosho:'総務',                              role:'総務管理者', level:'admin'},
 };
 const JIGYOSHO_LIST=['こすもす居宅介護支援事業所金沢','こすもす訪問看護ステーション 金沢','つつじの家訪問看護ステーション','こすもすの家（看多機）','看多機つつじの家','こすもす福祉用具事業所'];
+
+// 既読管理（ページ内メモリ）
+let readPosts=new Set();
 
 // reactions[postId] = { stamps:{emoji:[{name,jigyosho}]}, reads:[{name,jigyosho}], comments:[{name,jigyosho,text,date}] }
 let reactions={};
@@ -523,11 +528,13 @@ function makeCard(p, showDel=false){
   const imp=p.importance==='important';
   const delBtn=showDel?`<button class="btn-del" onclick="event.stopPropagation();deletePost('${p.id}')">削除</button>`:'';
   const uid='card-'+p.id;
-  return `<div class="card${imp?' imp':''}">
+  const isUnread=!readPosts.has(p.id);
+  return `<div class="card${imp?' imp':''}${isUnread?' unread':''}" data-pid="${p.id}">
     <div class="card-summary" onclick="toggleCard(this)">
       <div class="card-summary-left">
         <div class="card-date">${p.date}　共有：${p.share}</div>
         <div class="card-summary-title">
+          ${isUnread?'<span class="new-badge">NEW</span>':''}
           ${imp?'<span class="bdg b-imp" style="font-size:11px;margin-right:4px">★ 重要</span>':''}
           ${p.category?`<span class="bdg b-${p.category}" style="font-size:11px;margin-right:4px">${p.category}</span>`:''}
           ${p.title}
@@ -654,7 +661,7 @@ function showTab(t){
   document.querySelectorAll('.tab').forEach(el=>{
     el.classList.toggle('active',(el.getAttribute('onclick')||'').includes("'"+t+"'"));
   });
-  if(t==='board')  renderBoard();
+  if(t==='board')  { renderBoard(); updateUnreadCount(); }
   if(t==='notice') renderNotice();
   if(t==='shocho') renderShocho();
   if(t==='somu')   renderSomu();
@@ -742,6 +749,15 @@ function refreshComment(pid){
   if(cl) cl.innerHTML=makeCommentList(pid);
 }
 
+function updateUnreadCount(){
+  const vp=visiblePosts();
+  const unread=vp.filter(p=>!readPosts.has(p.id)).length;
+  const boardTab=document.querySelector('.tab[onclick*="board"]');
+  if(boardTab){
+    boardTab.innerHTML=unread>0?`📋<br>掲示板 <span style="background:#c0394a;color:#fff;border-radius:10px;font-size:11px;padding:1px 6px">${unread}</span>`:'📋<br>掲示板';
+  }
+}
+
 function toggleCard(el){
   const card=el.closest('.card');
   if(!card) return;
@@ -751,6 +767,19 @@ function toggleCard(el){
   const isOpen=detail.classList.contains('open');
   detail.classList.toggle('open',!isOpen);
   if(chev) chev.classList.toggle('open',!isOpen);
+  // 開いたら既読にする
+  if(!isOpen){
+    const pid=card.dataset.pid;
+    if(pid&&!readPosts.has(pid)){
+      readPosts.add(pid);
+      // NEWバッジを消す
+      const badge=card.querySelector('.new-badge');
+      if(badge) badge.remove();
+      card.classList.remove('unread');
+      // タブの未読カウント更新
+      updateUnreadCount();
+    }
+  }
 }
 
 initFromURL();
