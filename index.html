@@ -514,23 +514,18 @@ function visibleNotices(){
 }
 
 function imgHtml(item){
+  // 自分が投稿した画像（base64）はそのまま表示
   if(item.imgData) return `<div class="card-img"><img src="${item.imgData}" onclick="openModal('${item.imgData}')"></div>`;
-  if(item.imgUrl&&item.imgUrl!==''){
-    // IDを抽出していずれの形式にも対応
+  // GASから取得した画像はリンクで開く
+  if(item.imgUrl&&String(item.imgUrl).trim()!==''){
     let fileId='';
-    const m1=item.imgUrl.match(/\/d\/([^\/\?]+)/);
-    const m2=item.imgUrl.match(/[?&]id=([^&]+)/);
+    const s=String(item.imgUrl);
+    const m1=s.match(/\/d\/([^\/\?]+)/);
+    const m2=s.match(/[?&]id=([^&]+)/);
     if(m1) fileId=m1[1];
     else if(m2) fileId=m2[1];
-    if(fileId){
-      const viewUrl=`https://drive.google.com/file/d/${fileId}/view`;
-      const thumbUrl=`https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
-      return `<div class="card-img">
-        <img src="${thumbUrl}" onclick="openModal('${thumbUrl}')" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-        <a href="${viewUrl}" target="_blank" style="display:none">📷 添付画像を見る</a>
-      </div>`;
-    }
-    return `<div class="card-img"><a href="${item.imgUrl}" target="_blank">📷 添付画像を見る</a></div>`;
+    const viewUrl=fileId?`https://drive.google.com/file/d/${fileId}/view`:s;
+    return `<div class="card-img"><a href="${viewUrl}" target="_blank">📷 添付画像を見る</a></div>`;
   }
   return '';
 }
