@@ -168,6 +168,7 @@ textarea{resize:vertical;min-height:110px;line-height:1.7}
     <button class="tab" onclick="showTab('notice')">📌<br>共有事項</button>
     <button id="btn-shocho" class="tab hidden" onclick="showTab('shocho')">🛡<br>所長</button>
     <button id="btn-somu" class="tab hidden" onclick="showTab('somu')">🏢<br>総務</button>
+    <button class="tab" onclick="reloadAll()" id="reload-btn">🔄<br>更新</button>
   </div>
 
   <!-- 投稿 -->
@@ -514,12 +515,22 @@ function visibleNotices(){
 
 function imgHtml(item){
   if(item.imgData) return `<div class="card-img"><img src="${item.imgData}" onclick="openModal('${item.imgData}')"></div>`;
-  if(item.imgUrl){
-    // uc?id=形式をfile/d/形式に変換
-    let viewUrl=item.imgUrl;
-    const m=item.imgUrl.match(/[?&]id=([^&]+)/);
-    if(m) viewUrl=`https://drive.google.com/file/d/${m[1]}/view`;
-    return `<div class="card-img"><a href="${viewUrl}" target="_blank">📷 添付画像を見る</a></div>`;
+  if(item.imgUrl&&item.imgUrl!==''){
+    // IDを抽出していずれの形式にも対応
+    let fileId='';
+    const m1=item.imgUrl.match(/\/d\/([^\/\?]+)/);
+    const m2=item.imgUrl.match(/[?&]id=([^&]+)/);
+    if(m1) fileId=m1[1];
+    else if(m2) fileId=m2[1];
+    if(fileId){
+      const viewUrl=`https://drive.google.com/file/d/${fileId}/view`;
+      const thumbUrl=`https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
+      return `<div class="card-img">
+        <img src="${thumbUrl}" onclick="openModal('${thumbUrl}')" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+        <a href="${viewUrl}" target="_blank" style="display:none">📷 添付画像を見る</a>
+      </div>`;
+    }
+    return `<div class="card-img"><a href="${item.imgUrl}" target="_blank">📷 添付画像を見る</a></div>`;
   }
   return '';
 }
@@ -747,6 +758,25 @@ function refreshReaction(pid){
 function refreshComment(pid){
   const cl=document.getElementById('cm-list-'+pid);
   if(cl) cl.innerHTML=makeCommentList(pid);
+}
+
+function reloadAll(){
+  const btn=document.getElementById('reload-btn');
+  if(btn){ btn.innerHTML='⏳<br>取得中'; btn.disabled=true; }
+  if(!gasUrl){
+    if(btn){ btn.innerHTML='🔄<br>更新'; btn.disabled=false; }
+    return;
+  }
+  fetch(gasUrl).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){
+      if(d.posts) posts=d.posts.map((p,i)=>({...p,id:p.id||p['投稿ID']||('gas-'+i)}));
+      if(d.notices) notices=d.notices.map((n,i)=>({...n,id:n.id||n['ID']||('gasn-'+i)}));
+      renderCurrent();
+    }
+    if(btn){ btn.innerHTML='🔄<br>更新'; btn.disabled=false; }
+  }).catch(()=>{
+    if(btn){ btn.innerHTML='🔄<br>更新'; btn.disabled=false; }
+  });
 }
 
 function updateUnreadCount(){
