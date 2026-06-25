@@ -114,6 +114,25 @@ textarea{resize:vertical;min-height:110px;line-height:1.7}
 .modal.open{display:flex}
 .modal img{max-width:90vw;max-height:90vh;border-radius:var(--r)}
 .modal-close{position:absolute;top:16px;right:20px;font-size:32px;color:#fff;cursor:pointer;font-weight:700}
+.reaction-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.stamp-btn{font-size:20px;padding:4px 10px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;transition:all 0.1s;display:flex;align-items:center;gap:4px}
+.stamp-btn:hover{border-color:var(--text)}
+.stamp-btn.active{border-color:#c0394a;background:#fff0f5}
+.stamp-count{font-size:13px;font-weight:700;color:var(--text2)}
+.stamp-users{font-size:11px;color:var(--text3);margin-top:2px}
+.read-btn{font-size:14px;font-weight:700;padding:6px 14px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;color:var(--text2)}
+.read-btn.done{background:#d4edda;border-color:#1a7340;color:#1a7340}
+.read-list{font-size:12px;color:var(--text3);margin-top:4px}
+.comment-area{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.comment-head{font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px}
+.comment-item{background:#fff5f8;border-radius:var(--r);padding:8px 12px;margin-bottom:6px;font-size:14px}
+.comment-item-meta{font-size:11px;color:var(--text3);margin-top:4px}
+.comment-input-row{display:flex;gap:8px;margin-top:8px}
+.comment-input-row input{flex:1;padding:8px 12px;font-size:14px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;background:#fafaf8}
+.comment-input-row input:focus{border-color:#c0394a}
+.comment-send{padding:8px 16px;font-size:14px;font-weight:700;background:#c0394a;color:#fff;border:none;border-radius:var(--r);cursor:pointer;white-space:nowrap}
+.poster-input-row{display:flex;gap:8px;margin-bottom:8px}
+.poster-input-row input{flex:1;padding:7px 12px;font-size:13px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;background:#fafaf8}
 @media(max-width:480px){
   .row2{grid-template-columns:1fr}
   .hdr{padding:0 16px}
@@ -281,6 +300,8 @@ const ACCESS_MAP={
 };
 const JIGYOSHO_LIST=['こすもす居宅介護支援事業所金沢','こすもす訪問看護ステーション 金沢','つつじの家訪問看護ステーション','こすもすの家（看多機）','看多機つつじの家','こすもす福祉用具事業所'];
 
+// reactions[postId] = { stamps:{emoji:[{name,jigyosho}]}, reads:[{name,jigyosho}], comments:[{name,jigyosho,text,date}] }
+let reactions={};
 let cu=null, bFilter='all', gasUrl='https://script.google.com/macros/s/AKfycbwf8pjvqQYExXXz5uEEBHOG7cDtCEZHcszyIKo-0q6jNHJ0e0-uGO-3_q0bEgyrYJ1pmw/exec', nextId=1;
 let posts=[], notices=[];
 let pImgData=null, nImgData=null;
@@ -522,6 +543,20 @@ function makeCard(p, showDel=false){
         <div class="card-foot-info">${p.poster}（${p.role}）・${p.jigyosho}・${p.date}</div>
         ${delBtn}
       </div>
+      <div class="reaction-bar" id="rb-${p.id}">
+        ${makeReactionBar(p.id)}
+      </div>
+      <div class="comment-area">
+        <div class="comment-head">💬 コメント</div>
+        <div id="cm-list-${p.id}">${makeCommentList(p.id)}</div>
+        <div class="poster-input-row">
+          <input type="text" id="cm-name-${p.id}" placeholder="名前" style="max-width:120px">
+        </div>
+        <div class="comment-input-row">
+          <input type="text" id="cm-input-${p.id}" placeholder="コメントを入力..." onkeydown="if(event.key==='Enter')addComment('${p.id}')">
+          <button class="comment-send" onclick="addComment('${p.id}')">送信</button>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -628,6 +663,83 @@ function showTab(t){
 function setFilter(el,val){
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
   el.classList.add('on'); bFilter=val; renderBoard();
+}
+
+const STAMPS=['👍','😊','👏','✅','❗'];
+
+function getReaction(pid){
+  if(!reactions[pid]) reactions[pid]={stamps:{},reads:[]};
+  return reactions[pid];
+}
+
+function makeReactionBar(pid){
+  const r=getReaction(pid);
+  const myName=cu?cu.role:'';
+  // 既読ボタン
+  const isRead=r.reads.some(x=>x.name===cu.role&&x.jigyosho===cu.jigyosho);
+  const readBtn=`<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid}')">${isRead?'✓ 確認済':'確認しました'}</button>`;
+  const readList=r.reads.length?`<div class="read-list">確認済：${r.reads.map(x=>x.name).join('・')}</div>`:'';
+  // スタンプ
+  const stampBtns=STAMPS.map(s=>{
+    const users=(r.stamps[s]||[]);
+    const myStamp=users.some(x=>x.jigyosho===cu.jigyosho&&x.name===cu.role);
+    return `<button class="stamp-btn${myStamp?' active':''}" onclick="toggleStamp('${pid}','${s}')" title="${users.map(x=>x.name).join(', ')}">${s}<span class="stamp-count">${users.length||''}</span></button>`;
+  }).join('');
+  return readBtn+readList+stampBtns;
+}
+
+function makeCommentList(pid){
+  const r=getReaction(pid);
+  if(!r.comments||!r.comments.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
+  // 自事業所のみ表示
+  const visible=r.comments.filter(c=>c.jigyosho===cu.jigyosho);
+  if(!visible.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
+  return visible.map(c=>`<div class="comment-item">${c.text}<div class="comment-item-meta">${c.name}・${c.date}</div></div>`).join('');
+}
+
+function toggleRead(pid){
+  const r=getReaction(pid);
+  const idx=r.reads.findIndex(x=>x.name===cu.role&&x.jigyosho===cu.jigyosho);
+  if(idx>=0) r.reads.splice(idx,1);
+  else r.reads.push({name:cu.role,jigyosho:cu.jigyosho});
+  refreshReaction(pid);
+}
+
+function toggleStamp(pid,stamp){
+  const r=getReaction(pid);
+  if(!r.stamps[stamp]) r.stamps[stamp]=[];
+  const idx=r.stamps[stamp].findIndex(x=>x.name===cu.role&&x.jigyosho===cu.jigyosho);
+  if(idx>=0) r.stamps[stamp].splice(idx,1);
+  else r.stamps[stamp].push({name:cu.role,jigyosho:cu.jigyosho});
+  refreshReaction(pid);
+}
+
+function addComment(pid){
+  const nameEl=document.getElementById('cm-name-'+pid);
+  const inputEl=document.getElementById('cm-input-'+pid);
+  if(!nameEl||!inputEl) return;
+  const name=nameEl.value.trim();
+  const text=inputEl.value.trim();
+  if(!name){alert('名前を入力してください');return;}
+  if(!text) return;
+  const r=getReaction(pid);
+  if(!r.comments) r.comments=[];
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const date=`${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  r.comments.push({name,jigyosho:cu.jigyosho,text,date});
+  inputEl.value='';
+  refreshComment(pid);
+}
+
+function refreshReaction(pid){
+  const rb=document.getElementById('rb-'+pid);
+  if(rb) rb.innerHTML=makeReactionBar(pid);
+}
+
+function refreshComment(pid){
+  const cl=document.getElementById('cm-list-'+pid);
+  if(cl) cl.innerHTML=makeCommentList(pid);
 }
 
 function toggleCard(el){
