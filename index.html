@@ -339,20 +339,14 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 
 <script>
 const ACCESS_MAP={
-  'kr9x2m':{name:'スタッフ', jigyosho:'こすもす居宅介護支援事業所金沢',    level:'staff'},
-  'qw7hn4':{name:'所長',     jigyosho:'こすもす居宅介護支援事業所金沢',    level:'shocho'},
-  'bt3vp8':{name:'スタッフ', jigyosho:'こすもす訪問看護ステーション 金沢', level:'staff'},
-  'mz6fj1':{name:'所長',     jigyosho:'こすもす訪問看護ステーション 金沢', level:'shocho'},
-  'xk4ds9':{name:'スタッフ', jigyosho:'つつじの家訪問看護ステーション',    level:'staff'},
-  'gy2wc5':{name:'所長',     jigyosho:'つつじの家訪問看護ステーション',    level:'shocho'},
-  'np8ra3':{name:'スタッフ', jigyosho:'こすもすの家（看多機）',            level:'staff'},
-  'vl1tz7':{name:'所長',     jigyosho:'こすもすの家（看多機）',            level:'shocho'},
-  'hj5qb2':{name:'スタッフ', jigyosho:'看多機つつじの家',                  level:'staff'},
-  'wd9uk6':{name:'所長',     jigyosho:'看多機つつじの家',                  level:'shocho'},
-  'cm7oe4':{name:'スタッフ', jigyosho:'こすもす福祉用具事業所',            level:'staff'},
-  'sf3yg8':{name:'所長',     jigyosho:'こすもす福祉用具事業所',            level:'shocho'},
-  'rn4ah1':{name:'総務担当', jigyosho:'総務',                              level:'somu'},
-  'zb6pi9':{name:'総務管理者',jigyosho:'総務',                             level:'admin'},
+  'kr9x2m':{name:'スタッフ',   jigyosho:'こすもす居宅介護支援事業所金沢',    level:'staff'},
+  'bt3vp8':{name:'スタッフ',   jigyosho:'こすもす訪問看護ステーション 金沢', level:'staff'},
+  'xk4ds9':{name:'スタッフ',   jigyosho:'つつじの家訪問看護ステーション',    level:'staff'},
+  'np8ra3':{name:'スタッフ',   jigyosho:'こすもすの家（看多機）',            level:'staff'},
+  'hj5qb2':{name:'スタッフ',   jigyosho:'看多機つつじの家',                  level:'staff'},
+  'cm7oe4':{name:'スタッフ',   jigyosho:'こすもす福祉用具事業所',            level:'staff'},
+  'rn4ah1':{name:'総務担当',   jigyosho:'総務',                              level:'somu'},
+  'zb6pi9':{name:'総務管理者', jigyosho:'総務',                              level:'admin'},
 };
 
 const JIGYOSHO_LIST=[
@@ -643,9 +637,7 @@ function addComment(pid){
 }
 
 function canDel(p){
-  if(cu.level==='somu'||cu.level==='admin') return true;
-  if(cu.level==='shocho'&&p.jigyosho===cu.jigyosho) return true;
-  return false;
+  return true; // 全員が全投稿を削除可能
 }
 
 function deletePost(id){
