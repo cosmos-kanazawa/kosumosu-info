@@ -2,32 +2,46 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>こすもす 情報共有</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#fff0f5;
+  --bg:#fdf0f4;
   --white:#ffffff;
-  --border:#f0c0d0;
-  --text:#6b1a3a;
-  --text2:#a0547a;
-  --text3:#d4a0b8;
+  --border:#ecc8d8;
+  --text:#3d1020;
+  --text2:#8c4060;
+  --text3:#c898b0;
   --pink:#c0394a;
+  --pink-light:#fce4ec;
   --green:#1a7340;
-  --blue:#8a1a5a;
-  --yellow:#7a3a5a;
+  --green-light:#d4edda;
+  --yellow:#7a4a00;
+  --yellow-light:#fff3cd;
+  --red:#991b1b;
+  --red-light:#fee2e2;
+  --blue:#1a3a8a;
+  --blue-light:#dbeafe;
+  --gray:#f3f3f0;
   --r:10px;
+  --shadow:0 1px 4px rgba(0,0,0,0.08);
 }
 body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 
 /* ヘッダー */
-.hdr{background:#fce4ec;border-bottom:2px solid var(--text);padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
-.hdr-logo{font-size:18px;font-weight:800}
-.hdr-logo small{font-size:12px;font-weight:400;color:var(--text2);margin-left:6px}
+.hdr{background:var(--white);border-bottom:2px solid var(--pink);padding:0 16px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.hdr-logo{font-size:17px;font-weight:800;color:var(--pink);display:flex;align-items:center;gap:6px}
 .hdr-user{text-align:right}
-.hdr-j{font-size:13px;font-weight:700}
-.hdr-r{font-size:12px;color:var(--text2)}
+.hdr-name{font-size:13px;font-weight:700;color:var(--text)}
+.hdr-org{font-size:11px;color:var(--text2)}
+
+/* サマリーバー */
+.summary-bar{background:var(--white);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;gap:12px;align-items:center;font-size:13px;font-weight:600;flex-wrap:wrap}
+.sum-item{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px}
+.sum-unread{background:#fee2e2;color:#991b1b}
+.sum-action{background:#fff3cd;color:#7a4a00}
+.sum-inprogress{background:#dbeafe;color:#1a3a8a}
 
 /* アクセス不可 */
 .no-access{max-width:360px;margin:100px auto;text-align:center;padding:24px}
@@ -36,130 +50,162 @@ body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif
 .no-access p{font-size:15px;color:var(--text2);line-height:1.8}
 
 /* ラップ */
-.wrap{max-width:680px;margin:0 auto;padding:16px 14px 90px}
+.wrap{max-width:680px;margin:0 auto;padding:14px 12px 90px}
 
 /* タブ */
-.tabs{display:flex;background:var(--white);border:2px solid var(--text);border-radius:var(--r);overflow:hidden;margin-bottom:18px}
-.tab{flex:1;padding:13px 4px;font-size:15px;font-weight:700;border:none;background:none;color:var(--text2);cursor:pointer;border-right:1.5px solid var(--border);text-align:center;line-height:1.3;transition:all 0.1s;position:relative}
+.tabs{display:flex;background:var(--white);border:2px solid var(--pink);border-radius:var(--r);overflow:hidden;margin-bottom:16px;box-shadow:var(--shadow)}
+.tab{flex:1;padding:13px 4px;font-size:15px;font-weight:700;border:none;background:none;color:var(--text2);cursor:pointer;border-right:1.5px solid var(--border);text-align:center;line-height:1.3;transition:all 0.15s;position:relative}
 .tab:last-child{border-right:none}
 .tab.active{background:var(--pink);color:#fff}
-.tab.hidden{display:none}
-.tab-badge{display:inline-block;background:#fff;color:var(--pink);border-radius:10px;font-size:11px;padding:1px 6px;margin-left:4px;font-weight:800;vertical-align:middle}
-
-/* カード */
-.card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:10px;transition:border-color 0.1s}
-.card.imp{border-left:5px solid var(--pink)}
-.card.unread{background:#fff5f8}
-.card.notice-card{border-left:5px solid #8a1a5a}
-.card-summary{cursor:pointer;user-select:none;display:flex;align-items:flex-start;gap:10px}
-.card-summary-left{flex:1;min-width:0}
-.card-date{font-size:12px;color:var(--text3);margin-bottom:3px}
-.card-summary-title{font-size:17px;font-weight:800;line-height:1.4}
-.card-summary-meta{font-size:13px;color:var(--text2);margin-top:3px}
-.card-chevron{font-size:16px;color:var(--text3);flex-shrink:0;margin-top:2px;transition:transform 0.2s}
-.card-chevron.open{transform:rotate(180deg)}
-.card-detail{display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
-.card-detail.open{display:block}
-.card-body{font-size:16px;color:#333;line-height:1.8;white-space:pre-wrap}
-.card-foot{font-size:12px;color:var(--text3);margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
-
-/* バッジ */
-.bdg{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap}
-.b-業務連絡{background:#f3e8ff;color:#6d28d9}
-.b-業務改善{background:#fef9c3;color:#854d0e}
-.b-その他{background:#f3f3f0;color:#555}
-.b-imp{background:#fee2e2;color:#991b1b}
-.b-notice{background:#fce4ec;color:#c0394a}
-.new-badge{display:inline-block;font-size:11px;font-weight:800;background:var(--pink);color:#fff;padding:2px 7px;border-radius:4px;margin-right:5px;vertical-align:middle}
-
-/* フィルター */
-.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.chip{font-size:13px;padding:6px 14px;border:1.5px solid var(--border);border-radius:20px;cursor:pointer;background:var(--white);color:var(--text2);font-weight:600}
-.chip.on{background:var(--pink);color:#fff;border-color:var(--pink)}
+.tab-cnt{display:inline-block;background:#fff;color:var(--pink);border-radius:10px;font-size:11px;padding:1px 6px;margin-left:3px;font-weight:800;vertical-align:middle}
+.tab.active .tab-cnt{background:rgba(255,255,255,0.9);color:var(--pink)}
 
 /* フォーム */
-.form-box{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:20px}
+.form-box{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:18px;box-shadow:var(--shadow)}
 .frow{margin-bottom:16px}
-.flabel{font-size:13px;font-weight:800;color:var(--text2);margin-bottom:6px;display:block;letter-spacing:0.04em}
-input[type=text],select,textarea{width:100%;padding:11px 13px;font-size:16px;border:1.5px solid var(--border);border-radius:var(--r);background:#fff8fb;color:var(--text);outline:none;transition:border 0.1s;-webkit-appearance:none;appearance:none}
+.flabel{font-size:12px;font-weight:800;color:var(--text2);margin-bottom:6px;display:block;letter-spacing:0.05em;text-transform:uppercase}
+.flabel .req{color:var(--pink);margin-left:3px}
+input[type=text],input[type=date],select,textarea{width:100%;padding:11px 13px;font-size:16px;border:1.5px solid var(--border);border-radius:var(--r);background:#fffafe;color:var(--text);outline:none;transition:border 0.15s;-webkit-appearance:none;appearance:none}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a0547a'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
-input[type=text]:focus,select:focus,textarea:focus{border-color:var(--pink);background:#fff}
-textarea{resize:vertical;min-height:100px;line-height:1.7}
+input:focus,select:focus,textarea:focus{border-color:var(--pink);background:#fff}
+textarea{resize:vertical;min-height:90px;line-height:1.7}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.img-upload{border:2px dashed var(--border);border-radius:var(--r);padding:18px;text-align:center;cursor:pointer;background:#fff8fb;position:relative}
+.poster-display{padding:11px 13px;font-size:15px;font-weight:700;background:var(--pink-light);border:1.5px solid var(--border);border-radius:var(--r);color:var(--text)}
+
+/* 共有先チェック */
+.share-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+.share-check{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--r);cursor:pointer;background:#fffafe;transition:all 0.1s}
+.share-check:hover{border-color:var(--pink)}
+.share-check input[type=checkbox]{width:18px;height:18px;accent-color:var(--pink);cursor:pointer;flex-shrink:0}
+.share-check label{font-size:14px;font-weight:600;cursor:pointer;color:var(--text)}
+.share-check.checked{background:var(--pink-light);border-color:var(--pink)}
+
+/* 対応状況 */
+.taiou-wrap{display:none}
+.taiou-wrap.show{display:block}
+
+/* 画像アップロード */
+.img-upload{border:2px dashed var(--border);border-radius:var(--r);padding:16px;text-align:center;cursor:pointer;background:#fffafe;position:relative;transition:border-color 0.1s}
 .img-upload:hover{border-color:var(--pink)}
 .img-upload input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .img-upload-label{font-size:15px;color:var(--text2);font-weight:600;pointer-events:none}
 .img-upload-label span{display:block;font-size:12px;color:var(--text3);margin-top:3px}
 .img-preview{margin-top:10px;display:none}
-.img-preview img{max-width:100%;max-height:200px;border-radius:var(--r);border:1px solid var(--border)}
+.img-preview img{max-width:100%;max-height:180px;border-radius:var(--r);border:1px solid var(--border)}
 .img-clear{font-size:13px;color:var(--pink);cursor:pointer;margin-top:6px;display:inline-block;font-weight:600}
-.check-row{display:flex;align-items:center;gap:10px;padding:8px 0}
-.check-row input[type=checkbox]{width:22px;height:22px;cursor:pointer;accent-color:var(--pink)}
-.check-row label{font-size:16px;font-weight:600;cursor:pointer}
-.btn-submit{width:100%;padding:14px;font-size:17px;font-weight:800;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer;margin-top:4px;letter-spacing:0.04em}
-.btn-submit:disabled{opacity:0.4;cursor:not-allowed}
-.msg-ok{font-size:15px;color:var(--green);background:#d4edda;padding:11px 14px;border-radius:var(--r);margin-top:10px;display:none;font-weight:600}
-.msg-err{font-size:15px;color:#991b1b;background:#fee2e2;padding:11px 14px;border-radius:var(--r);margin-top:10px;display:none}
 
-/* リアクション */
+.btn-submit{width:100%;padding:14px;font-size:17px;font-weight:800;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer;margin-top:6px;letter-spacing:0.03em;box-shadow:0 2px 8px rgba(192,57,74,0.3)}
+.btn-submit:disabled{opacity:0.4;cursor:not-allowed;box-shadow:none}
+.msg-ok{font-size:15px;color:var(--green);background:var(--green-light);padding:11px 14px;border-radius:var(--r);margin-top:10px;display:none;font-weight:600}
+.msg-err{font-size:15px;color:var(--red);background:var(--red-light);padding:11px 14px;border-radius:var(--r);margin-top:10px;display:none}
+
+/* 掲示板ツールバー */
+.board-toolbar{margin-bottom:12px}
+.search-row{display:flex;gap:8px;margin-bottom:10px}
+.search-row input{flex:1;padding:9px 13px;font-size:15px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;background:var(--white)}
+.search-row input:focus{border-color:var(--pink)}
+.reload-btn{padding:9px 14px;font-size:14px;font-weight:700;border:1.5px solid var(--border);border-radius:var(--r);background:var(--white);color:var(--text);cursor:pointer;white-space:nowrap}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.chip{font-size:13px;padding:6px 12px;border:1.5px solid var(--border);border-radius:20px;cursor:pointer;background:var(--white);color:var(--text2);font-weight:600;white-space:nowrap;transition:all 0.1s}
+.chip.on{background:var(--pink);color:#fff;border-color:var(--pink)}
+.sort-row{display:flex;gap:8px;align-items:center}
+.sort-label{font-size:12px;color:var(--text2);font-weight:600}
+.sort-select{padding:6px 28px 6px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:var(--r);background:var(--white);color:var(--text);outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a0547a'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}
+
+/* カード */
+.card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);margin-bottom:10px;box-shadow:var(--shadow);overflow:hidden}
+.card.urgency-urgent{border-left:5px solid #dc2626}
+.card.urgency-check{border-left:5px solid #d97706}
+.card.unread{background:#fff8fb}
+.card-summary{cursor:pointer;padding:14px 16px;user-select:none}
+.card-row1{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.card-title{font-size:17px;font-weight:800;line-height:1.4;margin-bottom:5px;display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap}
+.card-title-text{flex:1;min-width:0}
+.card-meta{font-size:12px;color:var(--text2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card-chevron{float:right;font-size:14px;color:var(--text3);transition:transform 0.2s;margin-top:2px}
+.card-chevron.open{transform:rotate(180deg)}
+.card-detail{display:none;padding:0 16px 16px;border-top:1px solid var(--border)}
+.card-detail.open{display:block}
+.card-body-text{font-size:16px;color:#333;line-height:1.8;white-space:pre-wrap;padding:14px 0}
+.card-img{margin-bottom:10px}
+.card-img img{max-width:100%;border-radius:var(--r);border:1px solid var(--border);cursor:pointer}
+.card-img a{font-size:15px;color:var(--blue);text-decoration:underline;font-weight:600}
+
+/* バッジ類 */
+.bdg{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap}
+.new-badge{background:var(--pink);color:#fff;font-size:11px;padding:2px 7px;border-radius:4px;font-weight:800}
+.urg-urgent{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.urg-check{background:#fff3cd;color:#7a4a00;border:1px solid #fcd34d}
+.urg-normal{background:#f3f3f0;color:#555;border:1px solid #d1d5db}
+.cat-対応依頼{background:#dbeafe;color:#1e3a8a}
+.cat-お知らせ{background:#dcfce7;color:#14532d}
+.cat-業務改善・提案{background:#fef9c3;color:#713f12}
+.cat-その他{background:#f3f3f0;color:#374151}
+.share-badge{background:var(--pink-light);color:var(--pink);font-size:11px;padding:2px 7px;border-radius:4px;font-weight:600}
+
+/* 対応状況バッジ */
+.status-未対応{background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.status-対応中{background:#dbeafe;color:#1e3a8a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.status-確認待ち{background:#fff3cd;color:#7a4a00;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.status-完了{background:#dcfce7;color:#14532d;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.status-情報共有{background:#f3f3f0;color:#555;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+
+/* 対応状況変更 */
+.status-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:12px;padding:10px 0;border-top:1px solid var(--border)}
+.status-label{font-size:12px;font-weight:700;color:var(--text2)}
+.status-btn{font-size:13px;padding:5px 12px;border:1.5px solid var(--border);border-radius:20px;background:var(--white);cursor:pointer;font-weight:600;color:var(--text2);transition:all 0.1s}
+.status-btn.active{background:var(--pink);color:#fff;border-color:var(--pink)}
+.status-history{font-size:11px;color:var(--text3);margin-top:6px}
+
+/* リアクション・コメント */
 .reaction-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
-.stamp-btn{font-size:19px;padding:4px 10px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;display:flex;align-items:center;gap:4px}
-.stamp-btn.active{border-color:var(--pink);background:#fff0f5}
-.stamp-count{font-size:13px;font-weight:700;color:var(--text2)}
-.read-btn{font-size:14px;font-weight:700;padding:6px 14px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;color:var(--text2)}
-.read-btn.done{background:#d4edda;border-color:#1a7340;color:#1a7340}
-.read-list{font-size:12px;color:var(--text3);margin-top:4px;width:100%}
-
-/* コメント */
+.stamp-btn{font-size:18px;padding:4px 10px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;display:flex;align-items:center;gap:4px;transition:border-color 0.1s}
+.stamp-btn.active{border-color:var(--pink);background:var(--pink-light)}
+.stamp-count{font-size:12px;font-weight:700;color:var(--text2)}
+.read-btn{font-size:14px;font-weight:700;padding:6px 14px;border:1.5px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;color:var(--text2);transition:all 0.1s}
+.read-btn.done{background:var(--green-light);border-color:var(--green);color:var(--green)}
+.read-list{font-size:11px;color:var(--text3);margin-top:4px;width:100%}
 .comment-area{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
 .comment-head{font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px}
-.comment-item{background:#fff0f5;border-radius:var(--r);padding:8px 12px;margin-bottom:6px;font-size:14px}
-.comment-item-meta{font-size:11px;color:var(--text3);margin-top:3px}
-.comment-input-row{display:flex;gap:8px;margin-top:8px}
-.comment-input-row input{flex:1;padding:8px 12px;font-size:14px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;background:#fff8fb}
-.comment-input-row input:focus{border-color:var(--pink)}
-.comment-send{padding:8px 16px;font-size:14px;font-weight:700;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer;white-space:nowrap}
-.name-row{display:flex;gap:8px;margin-bottom:6px}
-.name-row input{max-width:130px;padding:7px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;background:#fff8fb}
-
-/* 削除ボタン */
+.comment-item{background:var(--pink-light);border-radius:var(--r);padding:8px 12px;margin-bottom:6px;font-size:14px}
+.comment-meta{font-size:11px;color:var(--text3);margin-top:3px}
+.cm-input-wrap{display:flex;gap:8px;margin-top:8px}
+.cm-input-wrap input{flex:1;padding:9px 12px;font-size:14px;border:1.5px solid var(--border);border-radius:var(--r);outline:none;background:#fffafe}
+.cm-input-wrap input:focus{border-color:var(--pink)}
+.cm-send{padding:9px 16px;font-size:14px;font-weight:700;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer;white-space:nowrap}
 .btn-del{padding:5px 12px;font-size:12px;font-weight:700;background:#fff;color:var(--pink);border:1.5px solid var(--pink);border-radius:var(--r);cursor:pointer}
-
-/* 画像 */
-.card-img{margin-top:10px}
-.card-img img{max-width:100%;border-radius:var(--r);border:1px solid var(--border);cursor:pointer}
-.card-img a{font-size:15px;color:#8a1a5a;text-decoration:underline;font-weight:600}
-
-/* 更新ボタン */
-.reload-wrap{display:flex;justify-content:flex-end;margin-bottom:10px}
-.reload-btn{padding:7px 16px;font-size:14px;font-weight:700;border:1.5px solid var(--border);border-radius:var(--r);background:var(--white);color:var(--text);cursor:pointer}
-
-/* セクション */
-.shead{font-size:13px;font-weight:800;color:var(--text2);letter-spacing:0.05em;padding-bottom:8px;border-bottom:2px solid var(--pink);margin-bottom:12px}
-.empty{font-size:15px;color:var(--text3);padding:14px 0;font-weight:600}
-.note-box{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--text2);margin-bottom:14px;font-weight:600}
+.deadline-badge{font-size:12px;color:#991b1b;font-weight:700;background:#fee2e2;padding:2px 8px;border-radius:4px}
 
 /* モーダル */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center}
 .modal.open{display:flex}
-.modal img{max-width:90vw;max-height:90vh;border-radius:var(--r)}
-.modal-close{position:absolute;top:16px;right:20px;font-size:32px;color:#fff;cursor:pointer;font-weight:700}
+.modal img{max-width:92vw;max-height:92vh;border-radius:var(--r)}
+.modal-close{position:absolute;top:14px;right:18px;font-size:30px;color:#fff;cursor:pointer;font-weight:700}
+
+.empty{font-size:15px;color:var(--text3);padding:20px 0;text-align:center;font-weight:600}
 
 @media(max-width:480px){
   .row2{grid-template-columns:1fr}
-  .hdr{padding:0 14px}
+  .share-grid{grid-template-columns:1fr 1fr}
+  .hdr{padding:0 12px}
+  .card-summary{padding:12px 14px}
 }
 </style>
 </head>
 <body>
 
 <div class="hdr">
-  <div class="hdr-logo">🌸 こすもす<small>情報共有</small></div>
+  <div class="hdr-logo">🌸 こすもす情報共有</div>
   <div class="hdr-user" id="hdr-user" style="display:none">
-    <div class="hdr-j" id="hdr-j"></div>
-    <div class="hdr-r" id="hdr-r"></div>
+    <div class="hdr-name" id="hdr-name"></div>
+    <div class="hdr-org" id="hdr-org"></div>
   </div>
+</div>
+
+<div class="summary-bar" id="summary-bar" style="display:none">
+  <span class="sum-item sum-unread" id="sum-unread">未確認 0件</span>
+  <span class="sum-item sum-action" id="sum-action">対応必要 0件</span>
+  <span class="sum-item sum-inprogress" id="sum-progress">対応中 0件</span>
 </div>
 
 <div class="no-access" id="no-access">
@@ -170,38 +216,39 @@ textarea{resize:vertical;min-height:100px;line-height:1.7}
 
 <div class="wrap" id="main" style="display:none">
   <div class="tabs">
-    <button class="tab active" onclick="showTab('post')">📝<br>投稿</button>
+    <button class="tab active" onclick="showTab('post')">📝<br>新規投稿</button>
     <button class="tab" id="tab-board-btn" onclick="showTab('board')">📋<br>掲示板</button>
-    <button class="tab" onclick="showTab('notice')">📌<br>共有事項</button>
   </div>
 
-  <!-- 投稿 -->
+  <!-- 新規投稿 -->
   <div id="tab-post">
     <div class="form-box">
       <div class="row2">
         <div class="frow">
-          <label class="flabel">カテゴリ</label>
+          <label class="flabel">カテゴリー<span class="req">*</span></label>
           <select id="p-cat">
-            <option>業務連絡</option>
-            <option>業務改善</option>
+            <option>対応依頼</option>
+            <option>お知らせ</option>
+            <option>業務改善・提案</option>
             <option>その他</option>
           </select>
         </div>
         <div class="frow">
-          <label class="flabel">重要度</label>
+          <label class="flabel">重要度<span class="req">*</span></label>
           <select id="p-imp">
             <option value="normal">通常</option>
-            <option value="important">★ 重要</option>
+            <option value="check">要確認</option>
+            <option value="urgent">至急対応</option>
           </select>
         </div>
       </div>
       <div class="frow">
-        <label class="flabel">投稿者名</label>
-        <input type="text" id="p-poster" placeholder="例：山田 花子">
+        <label class="flabel">投稿者</label>
+        <div class="poster-display" id="poster-display">—</div>
       </div>
       <div class="frow">
-        <label class="flabel">タイトル</label>
-        <input type="text" id="p-title" placeholder="例：田中様 本日退院のご連絡">
+        <label class="flabel">タイトル<span class="req">*</span></label>
+        <input type="text" id="p-title" placeholder="一目で要件が分かるタイトルを入力">
       </div>
       <div class="frow">
         <label class="flabel">内容</label>
@@ -218,13 +265,37 @@ textarea{resize:vertical;min-height:100px;line-height:1.7}
           <div class="img-clear" onclick="clearImg('p')">✕ 画像を削除</div>
         </div>
       </div>
-      <div class="frow" id="share-row">
-        <label class="flabel">共有先</label>
-        <select id="p-share">
-          <option value="自事業所のみ">自事業所のみ</option>
-          <option value="総務のみ">総務のみ</option>
-          <option value="すべて">すべて</option>
+      <div class="frow">
+        <label class="flabel">共有先<span class="req">*</span></label>
+        <div class="share-grid" id="share-grid">
+          <div class="share-check" onclick="toggleShare(this,'自事業所')">
+            <input type="checkbox" value="自事業所" onchange="updateShareDisplay()">
+            <label>自事業所</label>
+          </div>
+          <div class="share-check" onclick="toggleShare(this,'総務')">
+            <input type="checkbox" value="総務" onchange="updateShareDisplay()">
+            <label>総務</label>
+          </div>
+          <div class="share-check" onclick="toggleShare(this,'全事業所')">
+            <input type="checkbox" value="全事業所" onchange="updateShareDisplay()">
+            <label>全事業所</label>
+          </div>
+        </div>
+        <div id="jigyosho-checks" style="display:none;margin-top:8px">
+          <div class="share-grid" id="jigyosho-grid"></div>
+        </div>
+      </div>
+      <div class="frow">
+        <label class="flabel">対応の要否</label>
+        <select id="p-action" onchange="toggleDeadline()">
+          <option value="info">情報共有のみ</option>
+          <option value="confirm">確認が必要</option>
+          <option value="action">対応が必要</option>
         </select>
+      </div>
+      <div class="frow taiou-wrap" id="deadline-wrap">
+        <label class="flabel">対応期限（任意）</label>
+        <input type="date" id="p-deadline">
       </div>
       <button class="btn-submit" id="post-btn" onclick="submitPost()">投稿する</button>
       <div class="msg-ok" id="msg-ok"></div>
@@ -234,59 +305,30 @@ textarea{resize:vertical;min-height:100px;line-height:1.7}
 
   <!-- 掲示板 -->
   <div id="tab-board" style="display:none">
-    <div class="reload-wrap">
-      <button class="reload-btn" id="reload-btn" onclick="reloadAll()">🔄 更新</button>
-    </div>
-    <div class="filters">
-      <button class="chip on" onclick="setFilter(this,'all')">すべて</button>
-      <button class="chip" onclick="setFilter(this,'業務連絡')">業務連絡</button>
-      <button class="chip" onclick="setFilter(this,'業務改善')">業務改善</button>
-      <button class="chip" onclick="setFilter(this,'その他')">その他</button>
-      <button class="chip" onclick="setFilter(this,'重要')">★ 重要のみ</button>
-    </div>
-    <div id="board-list"></div>
-  </div>
-
-  <!-- 共有事項 -->
-  <div id="tab-notice" style="display:none">
-    <div id="notice-form" style="display:none">
-      <div class="form-box" style="margin-bottom:14px">
-        <div class="frow">
-          <label class="flabel">投稿者名</label>
-          <input type="text" id="n-poster" placeholder="例：山田 花子">
-        </div>
-        <div class="frow">
-          <label class="flabel">タイトル</label>
-          <input type="text" id="n-title" placeholder="例：7月の感染対策について">
-        </div>
-        <div class="frow">
-          <label class="flabel">内容</label>
-          <textarea id="n-body" placeholder="共有したい内容を入力してください"></textarea>
-        </div>
-        <div class="frow">
-          <label class="flabel">画像（任意）</label>
-          <div class="img-upload">
-            <input type="file" id="n-img" accept="image/*" onchange="previewImg('n')">
-            <div class="img-upload-label">📷 タップして画像を選択<span>JPG・PNG・GIF対応</span></div>
-          </div>
-          <div class="img-preview" id="n-img-preview">
-            <img id="n-img-thumb" src="">
-            <div class="img-clear" onclick="clearImg('n')">✕ 画像を削除</div>
-          </div>
-        </div>
-        <div id="notice-share-row" style="display:none">
-          <div class="check-row">
-            <input type="checkbox" id="n-all">
-            <label for="n-all">全事業所に共有する</label>
-          </div>
-        </div>
-        <button class="btn-submit" id="notice-btn" onclick="submitNotice()">共有事項を投稿する</button>
-        <div class="msg-ok" id="n-msg-ok"></div>
-        <div class="msg-err" id="n-msg-err"></div>
+    <div class="board-toolbar">
+      <div class="search-row">
+        <input type="text" id="search-input" placeholder="🔍 キーワード検索..." oninput="renderBoard()">
+        <button class="reload-btn" id="reload-btn" onclick="reloadAll()">🔄 更新</button>
+      </div>
+      <div class="filters">
+        <button class="chip on" onclick="setFilter(this,'all')">すべて</button>
+        <button class="chip" onclick="setFilter(this,'unread')">未確認</button>
+        <button class="chip" onclick="setFilter(this,'対応依頼')">対応依頼</button>
+        <button class="chip" onclick="setFilter(this,'お知らせ')">お知らせ</button>
+        <button class="chip" onclick="setFilter(this,'業務改善・提案')">業務改善</button>
+        <button class="chip" onclick="setFilter(this,'urgent')">🔴 至急</button>
+        <button class="chip" onclick="setFilter(this,'action')">未対応</button>
+      </div>
+      <div class="sort-row">
+        <span class="sort-label">並び替え：</span>
+        <select class="sort-select" id="sort-select" onchange="renderBoard()">
+          <option value="date">投稿日時順</option>
+          <option value="deadline">対応期限順</option>
+          <option value="urgency">重要度順</option>
+        </select>
       </div>
     </div>
-    <div class="shead">共有事項一覧</div>
-    <div id="notice-list"></div>
+    <div id="board-list"></div>
   </div>
 </div>
 
@@ -296,35 +338,98 @@ textarea{resize:vertical;min-height:100px;line-height:1.7}
 </div>
 
 <script>
-// ============================================================
-// アクセスマップ
-// ============================================================
 const ACCESS_MAP={
-  'kr9x2m':{jigyosho:'こすもす居宅介護支援事業所金沢',    role:'スタッフ',   level:'staff'},
-  'qw7hn4':{jigyosho:'こすもす居宅介護支援事業所金沢',    role:'所長',       level:'shocho'},
-  'bt3vp8':{jigyosho:'こすもす訪問看護ステーション 金沢', role:'スタッフ',   level:'staff'},
-  'mz6fj1':{jigyosho:'こすもす訪問看護ステーション 金沢', role:'所長',       level:'shocho'},
-  'xk4ds9':{jigyosho:'つつじの家訪問看護ステーション',    role:'スタッフ',   level:'staff'},
-  'gy2wc5':{jigyosho:'つつじの家訪問看護ステーション',    role:'所長',       level:'shocho'},
-  'np8ra3':{jigyosho:'こすもすの家（看多機）',            role:'スタッフ',   level:'staff'},
-  'vl1tz7':{jigyosho:'こすもすの家（看多機）',            role:'所長',       level:'shocho'},
-  'hj5qb2':{jigyosho:'看多機つつじの家',                  role:'スタッフ',   level:'staff'},
-  'wd9uk6':{jigyosho:'看多機つつじの家',                  role:'所長',       level:'shocho'},
-  'cm7oe4':{jigyosho:'こすもす福祉用具事業所',            role:'スタッフ',   level:'staff'},
-  'sf3yg8':{jigyosho:'こすもす福祉用具事業所',            role:'所長',       level:'shocho'},
-  'rn4ah1':{jigyosho:'総務',                              role:'総務担当',   level:'somu'},
-  'zb6pi9':{jigyosho:'総務',                              role:'総務管理者', level:'admin'},
+  'kr9x2m':{name:'スタッフ', jigyosho:'こすもす居宅介護支援事業所金沢',    level:'staff'},
+  'qw7hn4':{name:'所長',     jigyosho:'こすもす居宅介護支援事業所金沢',    level:'shocho'},
+  'bt3vp8':{name:'スタッフ', jigyosho:'こすもす訪問看護ステーション 金沢', level:'staff'},
+  'mz6fj1':{name:'所長',     jigyosho:'こすもす訪問看護ステーション 金沢', level:'shocho'},
+  'xk4ds9':{name:'スタッフ', jigyosho:'つつじの家訪問看護ステーション',    level:'staff'},
+  'gy2wc5':{name:'所長',     jigyosho:'つつじの家訪問看護ステーション',    level:'shocho'},
+  'np8ra3':{name:'スタッフ', jigyosho:'こすもすの家（看多機）',            level:'staff'},
+  'vl1tz7':{name:'所長',     jigyosho:'こすもすの家（看多機）',            level:'shocho'},
+  'hj5qb2':{name:'スタッフ', jigyosho:'看多機つつじの家',                  level:'staff'},
+  'wd9uk6':{name:'所長',     jigyosho:'看多機つつじの家',                  level:'shocho'},
+  'cm7oe4':{name:'スタッフ', jigyosho:'こすもす福祉用具事業所',            level:'staff'},
+  'sf3yg8':{name:'所長',     jigyosho:'こすもす福祉用具事業所',            level:'shocho'},
+  'rn4ah1':{name:'総務担当', jigyosho:'総務',                              level:'somu'},
+  'zb6pi9':{name:'総務管理者',jigyosho:'総務',                             level:'admin'},
 };
+
+const JIGYOSHO_LIST=[
+  'こすもす居宅介護支援事業所金沢',
+  'こすもす訪問看護ステーション 金沢',
+  'つつじの家訪問看護ステーション',
+  'こすもすの家（看多機）',
+  '看多機つつじの家',
+  'こすもす福祉用具事業所',
+  '総務'
+];
 
 const GAS_URL='https://script.google.com/macros/s/AKfycbwf8pjvqQYExXXz5uEEBHOG7cDtCEZHcszyIKo-0q6jNHJ0e0-uGO-3_q0bEgyrYJ1pmw/exec';
 const STAMPS=['👍','😊','👏','✅','❗'];
+const STATUS_LIST=['未対応','対応中','確認待ち','完了'];
 
 let cu=null, bFilter='all', nextId=1;
-let posts=[], notices=[];
-let pImgData=null, nImgData=null;
-let reactions={};
-let readPosts=new Set();
+let allPosts=[], reactions={}, readPosts=new Set();
+let pImgData=null;
 
+// 日時フォーマット
+function fmtDate(raw){
+  if(!raw) return '';
+  try{
+    const d=new Date(raw);
+    if(isNaN(d.getTime())) return String(raw);
+    const now=new Date();
+    const isToday=d.toDateString()===now.toDateString();
+    const mm=d.getMonth()+1, dd=d.getDate();
+    const hh=String(d.getHours()).padStart(2,'0'), min=String(d.getMinutes()).padStart(2,'0');
+    if(window.innerWidth<480){
+      return isToday?`今日 ${hh}:${min}`:`${mm}/${dd} ${hh}:${min}`;
+    }
+    return `${d.getFullYear()}年${mm}月${dd}日 ${hh}:${min}`;
+  }catch(e){ return String(raw); }
+}
+
+function fmtDeadline(raw){
+  if(!raw) return '';
+  try{
+    const d=new Date(raw);
+    if(isNaN(d.getTime())) return String(raw);
+    const now=new Date(); now.setHours(0,0,0,0);
+    const diff=Math.ceil((d-now)/(1000*60*60*24));
+    const label=`${d.getMonth()+1}/${d.getDate()}`;
+    if(diff<0) return `期限切れ(${label})`;
+    if(diff===0) return `本日期限(${label})`;
+    if(diff<=3) return `残${diff}日(${label})`;
+    return `期限:${label}`;
+  }catch(e){ return String(raw); }
+}
+
+// 共有先チェック
+function toggleShare(el, val){
+  const cb=el.querySelector('input[type=checkbox]');
+  cb.checked=!cb.checked;
+  el.classList.toggle('checked', cb.checked);
+  updateShareDisplay();
+}
+
+function updateShareDisplay(){
+  const checks=document.querySelectorAll('#share-grid input[type=checkbox]');
+  const vals=[...checks].filter(c=>c.checked).map(c=>c.value);
+}
+
+function getSelectedShares(){
+  const checks=document.querySelectorAll('#share-grid input[type=checkbox]');
+  return [...checks].filter(c=>c.checked).map(c=>c.value);
+}
+
+function toggleDeadline(){
+  const v=document.getElementById('p-action').value;
+  const w=document.getElementById('deadline-wrap');
+  w.classList.toggle('show', v==='action');
+}
+
+// 初期化
 function initFromURL(){
   const hash=location.hash.replace('#','');
   const ac=ACCESS_MAP[hash];
@@ -335,16 +440,24 @@ function initFromURL(){
 function showMain(){
   document.getElementById('no-access').style.display='none';
   document.getElementById('main').style.display='';
+  document.getElementById('summary-bar').style.display='';
   document.getElementById('hdr-user').style.display='';
-  document.getElementById('hdr-j').textContent=cu.jigyosho;
-  document.getElementById('hdr-r').textContent=cu.role;
-  // スタッフは共有先非表示
-  if(cu.level==='staff') document.getElementById('share-row').style.display='none';
-  // 所長・総務は共有事項投稿フォーム表示
-  if(cu.level!=='staff'){
-    document.getElementById('notice-form').style.display='';
-    if(cu.level==='somu'||cu.level==='admin') document.getElementById('notice-share-row').style.display='';
+  document.getElementById('hdr-name').textContent=cu.name;
+  document.getElementById('hdr-org').textContent=cu.jigyosho;
+  document.getElementById('poster-display').textContent=`${cu.name}／${cu.jigyosho}`;
+
+  // 共有先：スタッフは自事業所のみ固定
+  if(cu.level==='staff'){
+    const grid=document.getElementById('share-grid');
+    grid.innerHTML=`<div class="share-check checked"><input type="checkbox" checked disabled><label>自事業所</label></div>`;
   }
+
+  // 事業所別チェックを生成
+  const jg=document.getElementById('jigyosho-grid');
+  jg.innerHTML=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho).map(j=>
+    `<div class="share-check" onclick="toggleShare(this,'${j}')"><input type="checkbox" value="${j}" onchange="updateShareDisplay()"><label>${j.length>10?j.slice(0,10)+'…':j}</label></div>`
+  ).join('');
+
   loadFromGAS();
   showTab('post');
 }
@@ -352,45 +465,53 @@ function showMain(){
 function loadFromGAS(){
   fetch(GAS_URL).then(r=>r.json()).then(d=>{
     if(d.status==='ok'){
-      if(d.posts) posts=d.posts.map((p,i)=>({...p,id:p.id||('g'+i)}));
-      if(d.notices) notices=d.notices.map((n,i)=>({...n,id:n.id||('gn'+i)}));
-      renderCurrent();
-      updateUnreadCount();
+      const p=(d.posts||[]).map((x,i)=>({...x,id:x.id||('g'+i),_src:'post'}));
+      const n=(d.notices||[]).map((x,i)=>({...x,id:x.id||('gn'+i),category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+      allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
+      renderBoard();
+      updateSummary();
     }
   }).catch(()=>{});
 }
 
 function reloadAll(){
   const btn=document.getElementById('reload-btn');
-  btn.textContent='⏳ 取得中...'; btn.disabled=true;
+  btn.textContent='⏳'; btn.disabled=true;
   fetch(GAS_URL).then(r=>r.json()).then(d=>{
     if(d.status==='ok'){
-      if(d.posts) posts=d.posts.map((p,i)=>({...p,id:p.id||('g'+i)}));
-      if(d.notices) notices=d.notices.map((n,i)=>({...n,id:n.id||('gn'+i)}));
-      renderCurrent();
-      updateUnreadCount();
+      const p=(d.posts||[]).map((x,i)=>({...x,id:x.id||('g'+i),_src:'post'}));
+      const n=(d.notices||[]).map((x,i)=>({...x,id:x.id||('gn'+i),category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+      allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
+      renderBoard(); updateSummary();
     }
     btn.textContent='🔄 更新'; btn.disabled=false;
   }).catch(()=>{ btn.textContent='🔄 更新'; btn.disabled=false; });
 }
 
 async function submitPost(){
-  const poster=document.getElementById('p-poster').value.trim();
   const title=document.getElementById('p-title').value.trim();
-  const body=document.getElementById('p-body').value.trim();
-  if(!poster){alert('投稿者名を入力してください');return;}
-  if(!title||!body){alert('タイトルと内容を入力してください');return;}
-  const now=new Date(); const pad=n=>String(n).padStart(2,'0');
-  const date=`${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  const share=cu.level==='staff'?'自事業所のみ':document.getElementById('p-share').value;
-  const post={id:'p'+nextId++,type:'post',poster,jigyosho:cu.jigyosho,role:cu.role,
-    category:document.getElementById('p-cat').value,title,body,
-    importance:document.getElementById('p-imp').value,date,share,imgData:pImgData||null};
-  posts.unshift(post);
+  if(!title){alert('タイトルを入力してください');return;}
+  const shares=cu.level==='staff'?['自事業所']:getSelectedShares();
+  if(!shares.length){alert('共有先を選択してください');return;}
+  const now=new Date();
+  const date=now.toISOString();
+  const actionVal=document.getElementById('p-action').value;
+  const deadline=actionVal==='action'?document.getElementById('p-deadline').value:'';
+  const statusInit=actionVal==='info'?'情報共有':actionVal==='confirm'?'未対応':'未対応';
+  const post={
+    id:'p'+nextId++, type:'post',
+    poster:cu.name, jigyosho:cu.jigyosho, role:cu.name,
+    category:document.getElementById('p-cat').value,
+    importance:document.getElementById('p-imp').value,
+    title, body:document.getElementById('p-body').value.trim(),
+    share:shares.join('・'), action:actionVal, deadline, status:statusInit,
+    date, imgData:pImgData||null, _src:'post'
+  };
+  allPosts.unshift(post);
   clearImg('p');
-  document.getElementById('p-poster').value='';
   document.getElementById('p-title').value='';
   document.getElementById('p-body').value='';
+  document.getElementById('p-deadline').value='';
   const btn=document.getElementById('post-btn');
   const ok=document.getElementById('msg-ok');
   const er=document.getElementById('msg-err');
@@ -406,62 +527,43 @@ async function submitPost(){
   }catch(e){ er.textContent='⚠ 投稿しましたがスプレッドシートへの記録に失敗しました'; er.style.display='block'; }
   btn.disabled=false; btn.textContent='投稿する';
   setTimeout(()=>{ok.style.display='none';er.style.display='none';},4000);
+  updateSummary();
   showTab('board');
-}
-
-async function submitNotice(){
-  const poster=document.getElementById('n-poster').value.trim();
-  const title=document.getElementById('n-title').value.trim();
-  const body=document.getElementById('n-body').value.trim();
-  if(!poster){alert('投稿者名を入力してください');return;}
-  if(!title||!body){alert('タイトルと内容を入力してください');return;}
-  const now=new Date(); const pad=n=>String(n).padStart(2,'0');
-  const date=`${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  const allChk=document.getElementById('n-all');
-  const shareAll=(cu.level==='somu'||cu.level==='admin')&&allChk&&allChk.checked;
-  const notice={id:'n'+nextId++,type:'notice',poster,jigyosho:cu.jigyosho,role:cu.role,
-    title,body,date,share:shareAll?'全事業所':'自事業所のみ',imgData:nImgData||null};
-  notices.unshift(notice);
-  clearImg('n');
-  document.getElementById('n-poster').value='';
-  document.getElementById('n-title').value='';
-  document.getElementById('n-body').value='';
-  if(allChk) allChk.checked=false;
-  const btn=document.getElementById('notice-btn');
-  const ok=document.getElementById('n-msg-ok');
-  const er=document.getElementById('n-msg-err');
-  ok.style.display='none'; er.style.display='none';
-  btn.disabled=true; btn.textContent='送信中...';
-  try{
-    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify(notice)});
-    const d=await res.json();
-    if(d.status==='ok'){
-      if(d.imgUrl){ notice.imgUrl=d.imgUrl; notice.imgData=null; }
-      ok.textContent='✓ 投稿しました'; ok.style.display='block';
-    } else { er.textContent='⚠ 投稿しましたがスプレッドシートへの記録に失敗しました'; er.style.display='block'; }
-  }catch(e){ er.textContent='⚠ 投稿しましたがスプレッドシートへの記録に失敗しました'; er.style.display='block'; }
-  btn.disabled=false; btn.textContent='共有事項を投稿する';
-  setTimeout(()=>{ok.style.display='none';er.style.display='none';},4000);
-  renderNotice();
 }
 
 function visiblePosts(){
   if(!cu) return [];
-  return posts.filter(p=>{
+  return allPosts.filter(p=>{
     if(cu.level==='somu'||cu.level==='admin') return true;
-    if(p.share==='総務のみ') return false;
-    if(p.share==='すべて') return true;
-    return p.jigyosho===cu.jigyosho;
+    if(!p.share) return p.jigyosho===cu.jigyosho;
+    const shares=p.share.split('・').map(s=>s.trim());
+    if(shares.includes('全事業所')) return true;
+    if(shares.includes('総務')&&(cu.level==='somu'||cu.level==='admin')) return true;
+    if(shares.includes('自事業所')&&p.jigyosho===cu.jigyosho) return true;
+    if(shares.includes(cu.jigyosho)) return true;
+    return false;
   });
 }
 
-function visibleNotices(){
-  if(!cu) return [];
-  return notices.filter(n=>{
-    if(cu.level==='somu'||cu.level==='admin') return true;
-    if(n.share==='全事業所') return true;
-    return n.jigyosho===cu.jigyosho;
+function filteredPosts(){
+  let fp=visiblePosts();
+  const kw=document.getElementById('search-input')?.value.trim().toLowerCase()||'';
+  if(kw) fp=fp.filter(p=>(p.title||'').toLowerCase().includes(kw)||(p.body||'').toLowerCase().includes(kw)||(p.poster||'').toLowerCase().includes(kw));
+  if(bFilter==='unread') fp=fp.filter(p=>!readPosts.has(p.id));
+  else if(bFilter==='urgent') fp=fp.filter(p=>p.importance==='urgent');
+  else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応'||p.status==='対応中');
+  else if(bFilter!=='all') fp=fp.filter(p=>p.category===bFilter);
+  const sort=document.getElementById('sort-select')?.value||'date';
+  if(sort==='deadline') fp=[...fp].sort((a,b)=>{
+    if(!a.deadline&&!b.deadline) return 0;
+    if(!a.deadline) return 1; if(!b.deadline) return -1;
+    return new Date(a.deadline)-new Date(b.deadline);
   });
+  else if(sort==='urgency'){
+    const uw={urgent:0,check:1,normal:2};
+    fp=[...fp].sort((a,b)=>(uw[a.importance]||2)-(uw[b.importance]||2));
+  }
+  return fp;
 }
 
 function imgHtml(item){
@@ -469,9 +571,7 @@ function imgHtml(item){
   if(item.imgUrl&&String(item.imgUrl).trim()!==''){
     const s=String(item.imgUrl);
     if(s.indexOf('drive.google.com')>=0){
-      let fileId='';
-      const m1=s.match(/\/d\/([^\/\?]+)/);
-      const m2=s.match(/[?&]id=([^&]+)/);
+      let fileId=''; const m1=s.match(/\/d\/([^\/\?]+)/); const m2=s.match(/[?&]id=([^&]+)/);
       if(m1) fileId=m1[1]; else if(m2) fileId=m2[1];
       const viewUrl=fileId?`https://drive.google.com/file/d/${fileId}/view`:s;
       return `<div class="card-img"><a href="${viewUrl}" target="_blank">📷 添付画像を見る</a></div>`;
@@ -480,53 +580,64 @@ function imgHtml(item){
   return '';
 }
 
-// リアクション
-function getR(pid){ if(!reactions[pid]) reactions[pid]={stamps:{},reads:[],comments:[]}; return reactions[pid]; }
+function getR(pid){ if(!reactions[pid]) reactions[pid]={stamps:{},reads:[],comments:[],statusHistory:[]}; return reactions[pid]; }
 
 function makeReactionBar(pid){
   const r=getR(pid);
-  const isRead=r.reads.some(x=>x.name===cu.role&&x.jigyosho===cu.jigyosho);
+  const isRead=r.reads.some(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
   const readBtn=`<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid}')">${isRead?'✓ 確認済':'確認しました'}</button>`;
   const readList=r.reads.length?`<div class="read-list">確認済：${r.reads.map(x=>x.name).join('・')}</div>`:'';
   const stampBtns=STAMPS.map(s=>{
     const users=(r.stamps[s]||[]);
-    const my=users.some(x=>x.jigyosho===cu.jigyosho&&x.name===cu.role);
+    const my=users.some(x=>x.jigyosho===cu.jigyosho&&x.name===cu.name);
     return `<button class="stamp-btn${my?' active':''}" onclick="toggleStamp('${pid}','${s}')">${s}<span class="stamp-count">${users.length||''}</span></button>`;
   }).join('');
   return readBtn+readList+stampBtns;
+}
+
+function makeStatusBar(pid, currentStatus){
+  const r=getR(pid);
+  const hist=r.statusHistory&&r.statusHistory.length?`<div class="status-history">最終更新：${r.statusHistory[r.statusHistory.length-1]}</div>`:'';
+  const btns=STATUS_LIST.map(s=>`<button class="status-btn${currentStatus===s?' active':''}" onclick="changeStatus('${pid}','${s}')">${s}</button>`).join('');
+  return `<div class="status-bar"><span class="status-label">対応状況：</span>${btns}</div>${hist}`;
+}
+
+function changeStatus(pid, newStatus){
+  const post=allPosts.find(p=>p.id===pid);
+  if(post) post.status=newStatus;
+  const r=getR(pid);
+  const now=new Date(); const d=fmtDate(now.toISOString());
+  r.statusHistory.push(`${cu.name}が「${newStatus}」に変更（${d}）`);
+  renderBoard(); updateSummary();
 }
 
 function makeCommentList(pid){
   const r=getR(pid);
   const visible=(r.comments||[]).filter(c=>c.jigyosho===cu.jigyosho);
   if(!visible.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
-  return visible.map(c=>`<div class="comment-item">${c.text}<div class="comment-item-meta">${c.name}・${c.date}</div></div>`).join('');
+  return visible.map(c=>`<div class="comment-item">${c.text}<div class="comment-meta">${c.name}・${fmtDate(c.date)}</div></div>`).join('');
 }
 
 function toggleRead(pid){
-  const r=getR(pid); const idx=r.reads.findIndex(x=>x.name===cu.role&&x.jigyosho===cu.jigyosho);
-  if(idx>=0) r.reads.splice(idx,1); else r.reads.push({name:cu.role,jigyosho:cu.jigyosho});
+  const r=getR(pid); const idx=r.reads.findIndex(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
+  if(idx>=0) r.reads.splice(idx,1); else r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
   document.getElementById('rb-'+pid).innerHTML=makeReactionBar(pid);
 }
 
 function toggleStamp(pid,stamp){
   const r=getR(pid); if(!r.stamps[stamp]) r.stamps[stamp]=[];
-  const idx=r.stamps[stamp].findIndex(x=>x.name===cu.role&&x.jigyosho===cu.jigyosho);
-  if(idx>=0) r.stamps[stamp].splice(idx,1); else r.stamps[stamp].push({name:cu.role,jigyosho:cu.jigyosho});
+  const idx=r.stamps[stamp].findIndex(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
+  if(idx>=0) r.stamps[stamp].splice(idx,1); else r.stamps[stamp].push({name:cu.name,jigyosho:cu.jigyosho});
   document.getElementById('rb-'+pid).innerHTML=makeReactionBar(pid);
 }
 
 function addComment(pid){
-  const nameEl=document.getElementById('cm-name-'+pid);
   const inputEl=document.getElementById('cm-input-'+pid);
-  if(!nameEl||!inputEl) return;
-  const name=nameEl.value.trim(); const text=inputEl.value.trim();
-  if(!name){alert('名前を入力してください');return;}
+  if(!inputEl) return;
+  const text=inputEl.value.trim();
   if(!text) return;
   const r=getR(pid);
-  const now=new Date(); const pad=n=>String(n).padStart(2,'0');
-  const date=`${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  r.comments.push({name,jigyosho:cu.jigyosho,text,date});
+  r.comments.push({name:cu.name,jigyosho:cu.jigyosho,text,date:new Date().toISOString()});
   inputEl.value='';
   document.getElementById('cm-list-'+pid).innerHTML=makeCommentList(pid);
 }
@@ -539,70 +650,54 @@ function canDel(p){
 
 function deletePost(id){
   if(!confirm('この投稿を削除しますか？')) return;
-  posts=posts.filter(p=>p.id!==id);
-  fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete',target:'post',id})}).catch(()=>{});
-  renderBoard();
-}
-
-function deleteNotice(id){
-  if(!confirm('この共有事項を削除しますか？')) return;
-  notices=notices.filter(n=>n.id!==id);
-  fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete',target:'notice',id})}).catch(()=>{});
-  renderNotice();
+  const p=allPosts.find(x=>x.id===id);
+  allPosts=allPosts.filter(x=>x.id!==id);
+  const target=p&&p._src==='notice'?'notice':'post';
+  fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete',target,id})}).catch(()=>{});
+  renderBoard(); updateSummary();
 }
 
 function makeCard(p){
-  const imp=p.importance==='important';
+  const imp=p.importance||'normal';
   const isUnread=!readPosts.has(p.id);
+  const urgClass=imp==='urgent'?'urgency-urgent':imp==='check'?'urgency-check':'';
+  const urgBdg=imp==='urgent'?'<span class="bdg urg-urgent">🔴 至急対応</span>':imp==='check'?'<span class="bdg urg-check">🟡 要確認</span>':'<span class="bdg urg-normal">通常</span>';
+  const catBdg=p.category?`<span class="bdg cat-${p.category}">${p.category}</span>`:'';
+  const statusBdg=p.status?`<span class="status-${p.status}">${p.status}</span>`:'';
+  const deadlineBdg=p.deadline?`<span class="deadline-badge">⏰ ${fmtDeadline(p.deadline)}</span>`:'';
   const delBtn=canDel(p)?`<button class="btn-del" onclick="event.stopPropagation();deletePost('${p.id}')">削除</button>`:'';
-  return `<div class="card${imp?' imp':''}${isUnread?' unread':''}" data-pid="${p.id}">
+  const showStatus=p.action&&p.action!=='info';
+
+  return `<div class="card${urgClass?' '+urgClass:''}${isUnread?' unread':''}" data-pid="${p.id}">
     <div class="card-summary" onclick="toggleCard(this)">
-      <div class="card-summary-left">
-        <div class="card-date">${p.date}　共有：${p.share}</div>
-        <div class="card-summary-title">
-          ${isUnread?'<span class="new-badge">NEW</span>':''}
-          ${imp?'<span class="bdg b-imp">★ 重要</span> ':''}
-          ${p.category?`<span class="bdg b-${p.category}">${p.category}</span> `:''}
-          ${p.title}
-        </div>
-        <div class="card-summary-meta">${p.poster}（${p.role}）・${p.jigyosho}</div>
+      <div class="card-chevron" style="float:right">▼</div>
+      <div class="card-row1">
+        ${isUnread?'<span class="new-badge">NEW</span>':''}
+        ${urgBdg}${catBdg}${statusBdg}${deadlineBdg}
       </div>
-      <div class="card-chevron">▼</div>
+      <div class="card-title">
+        <span class="card-title-text">${p.title||'(タイトルなし)'}</span>
+      </div>
+      <div class="card-meta">
+        <span>${fmtDate(p.date)}</span>
+        <span>${p.poster||p.role||''}／${p.jigyosho||''}</span>
+        <span class="share-badge">→ ${p.share||'自事業所'}</span>
+      </div>
     </div>
     <div class="card-detail">
-      <div class="card-body">${p.body}</div>
+      <div class="card-body-text">${p.body||''}</div>
       ${imgHtml(p)}
-      <div class="card-foot">
-        <div>${p.poster}（${p.role}）・${p.date}</div>
-        ${delBtn}
-      </div>
+      <div style="display:flex;justify-content:flex-end;padding-top:8px">${delBtn}</div>
+      ${showStatus?makeStatusBar(p.id, p.status||'未対応'):''}
       <div class="reaction-bar" id="rb-${p.id}">${makeReactionBar(p.id)}</div>
       <div class="comment-area">
         <div class="comment-head">💬 コメント（自事業所内）</div>
         <div id="cm-list-${p.id}">${makeCommentList(p.id)}</div>
-        <div class="name-row"><input type="text" id="cm-name-${p.id}" placeholder="名前"></div>
-        <div class="comment-input-row">
+        <div class="cm-input-wrap">
           <input type="text" id="cm-input-${p.id}" placeholder="コメントを入力..." onkeydown="if(event.key==='Enter')addComment('${p.id}')">
-          <button class="comment-send" onclick="addComment('${p.id}')">送信</button>
+          <button class="cm-send" onclick="addComment('${p.id}')">送信</button>
         </div>
       </div>
-    </div>
-  </div>`;
-}
-
-function makeNoticeCard(n){
-  const isAll=n.share==='全事業所';
-  const delBtn=canDel(n)?`<button class="btn-del" onclick="deleteNotice('${n.id}')">削除</button>`:'';
-  return `<div class="card notice-card">
-    <div class="card-top" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;margin-bottom:8px">
-      <span class="bdg b-notice">${isAll?'全事業所':'自事業所'}</span>
-      <span style="font-size:17px;font-weight:800;flex:1">${n.title}</span>
-    </div>
-    <div class="card-body">${n.body}</div>
-    ${imgHtml(n)}
-    <div class="card-foot">
-      <div>${n.poster}（${n.role}）・${n.jigyosho}・${n.date}</div>
-      ${delBtn}
     </div>
   </div>`;
 }
@@ -631,19 +726,23 @@ function toggleCard(el){
 function updateUnreadCount(){
   const unread=visiblePosts().filter(p=>!readPosts.has(p.id)).length;
   const btn=document.getElementById('tab-board-btn');
-  if(btn) btn.innerHTML=unread>0?`📋<br>掲示板 <span class="tab-badge">${unread}</span>`:'📋<br>掲示板';
+  if(btn) btn.innerHTML=unread>0?`📋<br>掲示板 <span class="tab-cnt">${unread}</span>`:'📋<br>掲示板';
+}
+
+function updateSummary(){
+  const vp=visiblePosts();
+  const unread=vp.filter(p=>!readPosts.has(p.id)).length;
+  const action=vp.filter(p=>p.status==='未対応').length;
+  const progress=vp.filter(p=>p.status==='対応中').length;
+  document.getElementById('sum-unread').textContent=`未確認 ${unread}件`;
+  document.getElementById('sum-action').textContent=`対応必要 ${action}件`;
+  document.getElementById('sum-progress').textContent=`対応中 ${progress}件`;
+  updateUnreadCount();
 }
 
 function renderBoard(){
-  let fp=visiblePosts();
-  if(bFilter==='重要') fp=fp.filter(p=>p.importance==='important');
-  else if(bFilter!=='all') fp=fp.filter(p=>p.category===bFilter);
+  const fp=filteredPosts();
   document.getElementById('board-list').innerHTML=fp.length?fp.map(makeCard).join(''):'<div class="empty">該当する投稿がありません</div>';
-}
-
-function renderNotice(){
-  const vn=visibleNotices();
-  document.getElementById('notice-list').innerHTML=vn.length?vn.map(makeNoticeCard).join(''):'<div class="empty">共有事項はありません</div>';
 }
 
 function renderCurrent(){
@@ -654,15 +753,14 @@ function renderCurrent(){
 }
 
 function showTab(t){
-  ['post','board','notice'].forEach(n=>{
+  ['post','board'].forEach(n=>{
     const el=document.getElementById('tab-'+n);
     if(el) el.style.display=n===t?'':'none';
   });
   document.querySelectorAll('.tab').forEach(el=>{
     el.classList.toggle('active',(el.getAttribute('onclick')||'').includes("'"+t+"'"));
   });
-  if(t==='board'){ renderBoard(); updateUnreadCount(); }
-  if(t==='notice') renderNotice();
+  if(t==='board'){ renderBoard(); updateSummary(); }
 }
 
 function setFilter(el,val){
@@ -676,7 +774,7 @@ function previewImg(prefix){
   const reader=new FileReader();
   reader.onload=e=>{
     const data=e.target.result;
-    if(prefix==='p') pImgData=data; else nImgData=data;
+    pImgData=data;
     document.getElementById(prefix+'-img-thumb').src=data;
     document.getElementById(prefix+'-img-preview').style.display='block';
   };
@@ -684,7 +782,7 @@ function previewImg(prefix){
 }
 
 function clearImg(prefix){
-  if(prefix==='p') pImgData=null; else nImgData=null;
+  pImgData=null;
   document.getElementById(prefix+'-img').value='';
   document.getElementById(prefix+'-img-thumb').src='';
   document.getElementById(prefix+'-img-preview').style.display='none';
