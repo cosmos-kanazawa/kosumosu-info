@@ -243,7 +243,11 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
         </div>
       </div>
       <div class="frow">
-        <label class="flabel">投稿者</label>
+        <label class="flabel">投稿者名<span class="req">*</span></label>
+        <input type="text" id="p-poster" placeholder="例：山田 花子">
+      </div>
+      <div class="frow">
+        <label class="flabel">所属事業所</label>
         <div class="poster-display" id="poster-display">—</div>
       </div>
       <div class="frow">
@@ -438,7 +442,7 @@ function showMain(){
   document.getElementById('hdr-user').style.display='';
   document.getElementById('hdr-name').textContent=cu.name;
   document.getElementById('hdr-org').textContent=cu.jigyosho;
-  document.getElementById('poster-display').textContent=`${cu.name}／${cu.jigyosho}`;
+  document.getElementById('poster-display').textContent=cu.jigyosho;
 
   // 共有先：スタッフは自事業所のみ固定
   if(cu.level==='staff'){
@@ -483,6 +487,8 @@ function reloadAll(){
 }
 
 async function submitPost(){
+  const poster=document.getElementById('p-poster').value.trim();
+  if(!poster){alert('投稿者名を入力してください');return;}
   const title=document.getElementById('p-title').value.trim();
   if(!title){alert('タイトルを入力してください');return;}
   const shares=cu.level==='staff'?['自事業所']:getSelectedShares();
@@ -494,7 +500,7 @@ async function submitPost(){
   const statusInit=actionVal==='info'?'情報共有':actionVal==='confirm'?'未対応':'未対応';
   const post={
     id:'p'+nextId++, type:'post',
-    poster:cu.name, jigyosho:cu.jigyosho, role:cu.name,
+    poster:poster, jigyosho:cu.jigyosho, role:poster,
     category:document.getElementById('p-cat').value,
     importance:document.getElementById('p-imp').value,
     title, body:document.getElementById('p-body').value.trim(),
@@ -506,6 +512,7 @@ async function submitPost(){
   document.getElementById('p-title').value='';
   document.getElementById('p-body').value='';
   document.getElementById('p-deadline').value='';
+  // 投稿者名はそのまま残す（連続投稿の利便性のため）
   const btn=document.getElementById('post-btn');
   const ok=document.getElementById('msg-ok');
   const er=document.getElementById('msg-err');
