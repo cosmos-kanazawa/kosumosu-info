@@ -456,10 +456,23 @@ function showMain(){
   document.getElementById('hdr-org').textContent=cu.jigyosho;
   document.getElementById('poster-display').textContent=cu.jigyosho;
 
-  // 共有先：スタッフは自事業所のみ固定
+  // 共有先：スタッフは自事業所のみ固定、総務は全事業所・特定事業所のみ表示
   if(cu.level==='staff'){
     const grid=document.getElementById('share-grid');
     grid.innerHTML=`<div class="share-check checked"><input type="checkbox" checked disabled><label>自事業所</label></div>`;
+  } else if(cu.level==='somu'||cu.level==='admin'){
+    const grid=document.getElementById('share-grid');
+    grid.innerHTML=`
+      <div class="share-check" onclick="toggleShare(this,'全事業所')">
+        <input type="checkbox" value="全事業所" onchange="updateShareDisplay()">
+        <label>全事業所</label>
+      </div>
+      <div class="share-check" onclick="toggleShare(this,'総務')">
+        <input type="checkbox" value="総務" onchange="updateShareDisplay()">
+        <label>総務内のみ</label>
+      </div>`;
+    // 特定事業所チェックは表示したまま
+    document.getElementById('jigyosho-checks').style.display='';
   }
 
   // 事業所別チェックを生成
