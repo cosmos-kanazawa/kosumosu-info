@@ -38,10 +38,11 @@ body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif
 
 /* サマリーバー */
 .summary-bar{background:var(--white);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;gap:12px;align-items:center;font-size:13px;font-weight:600;flex-wrap:wrap}
-.sum-item{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px}
-.sum-unread{background:#fee2e2;color:#991b1b}
-.sum-action{background:#fff3cd;color:#7a4a00}
-.sum-inprogress{background:#dbeafe;color:#1a3a8a}
+.sum-item{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;cursor:pointer;font-weight:700;border:1.5px solid transparent;transition:all 0.15s;user-select:none}
+.sum-item:hover{opacity:0.85;transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,0.12)}
+.sum-unread{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+.sum-action{background:#fff3cd;color:#7a4a00;border-color:#fcd34d}
+.sum-inprogress{background:#dbeafe;color:#1a3a8a;border-color:#93c5fd}
 
 /* アクセス不可 */
 .no-access{max-width:360px;margin:100px auto;text-align:center;padding:24px}
@@ -108,6 +109,8 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .chip{font-size:13px;padding:6px 12px;border:1.5px solid var(--border);border-radius:20px;cursor:pointer;background:var(--white);color:var(--text2);font-weight:600;white-space:nowrap;transition:all 0.1s}
 .chip.on{background:var(--pink);color:#fff;border-color:var(--pink)}
+.filter-toggle-btn{background:var(--bg);color:var(--text2);font-size:12px;padding:6px 10px}
+.filters-main{margin-bottom:6px}
 .sort-row{display:flex;gap:8px;align-items:center}
 .sort-label{font-size:12px;color:var(--text2);font-weight:600}
 .sort-select{padding:6px 28px 6px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:var(--r);background:var(--white);color:var(--text);outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a0547a'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}
@@ -183,6 +186,10 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 .modal-close{position:absolute;top:14px;right:18px;font-size:30px;color:#fff;cursor:pointer;font-weight:700}
 
 .empty{font-size:15px;color:var(--text3);padding:20px 0;text-align:center;font-weight:600}
+.empty-state{text-align:center;padding:40px 20px;background:var(--white);border:1.5px solid var(--border);border-radius:var(--r)}
+.empty-icon{font-size:40px;margin-bottom:12px}
+.empty-msg{font-size:16px;color:var(--text2);font-weight:600;margin-bottom:16px}
+.empty-btn{padding:10px 24px;font-size:15px;font-weight:700;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer}
 
 @media(max-width:480px){
   .row2{grid-template-columns:1fr}
@@ -203,9 +210,9 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 </div>
 
 <div class="summary-bar" id="summary-bar" style="display:none">
-  <span class="sum-item sum-unread" id="sum-unread">未確認 0件</span>
-  <span class="sum-item sum-action" id="sum-action">対応必要 0件</span>
-  <span class="sum-item sum-inprogress" id="sum-progress">対応中 0件</span>
+  <span class="sum-item sum-unread" id="sum-unread" onclick="jumpFilter('unread')" title="未確認の投稿を表示">未確認 0件 →</span>
+  <span class="sum-item sum-action" id="sum-action" onclick="jumpFilter('action')" title="対応が必要な投稿を表示">対応必要 0件 →</span>
+  <span class="sum-item sum-inprogress" id="sum-progress" onclick="jumpFilter('progress')" title="対応中の投稿を表示">対応中 0件 →</span>
 </div>
 
 <div class="no-access" id="no-access">
@@ -216,12 +223,12 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 
 <div class="wrap" id="main" style="display:none">
   <div class="tabs">
-    <button class="tab active" onclick="showTab('post')">📝<br>新規投稿</button>
-    <button class="tab" id="tab-board-btn" onclick="showTab('board')">📋<br>掲示板</button>
+    <button class="tab" onclick="showTab('post')">📝<br>新規投稿</button>
+    <button class="tab active" id="tab-board-btn" onclick="showTab('board')">📋<br>掲示板</button>
   </div>
 
   <!-- 新規投稿 -->
-  <div id="tab-post">
+  <div id="tab-post" style="display:none">
     <div class="form-box">
       <div class="row2">
         <div class="frow">
@@ -308,20 +315,25 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
   </div>
 
   <!-- 掲示板 -->
-  <div id="tab-board" style="display:none">
+  <div id="tab-board">
     <div class="board-toolbar">
       <div class="search-row">
         <input type="text" id="search-input" placeholder="🔍 キーワード検索..." oninput="renderBoard()">
         <button class="reload-btn" id="reload-btn" onclick="reloadAll()">🔄 更新</button>
       </div>
-      <div class="filters">
-        <button class="chip on" onclick="setFilter(this,'all')">すべて</button>
-        <button class="chip" onclick="setFilter(this,'unread')">未確認</button>
-        <button class="chip" onclick="setFilter(this,'対応依頼')">対応依頼</button>
-        <button class="chip" onclick="setFilter(this,'お知らせ')">お知らせ</button>
-        <button class="chip" onclick="setFilter(this,'業務改善・提案')">業務改善</button>
-        <button class="chip" onclick="setFilter(this,'urgent')">🔴 至急</button>
-        <button class="chip" onclick="setFilter(this,'action')">未対応</button>
+      <div class="filters filters-main">
+        <button class="chip on" id="chip-all" onclick="setFilter(this,'all')">すべて</button>
+        <button class="chip" id="chip-unread" onclick="setFilter(this,'unread')">未確認</button>
+        <button class="chip" id="chip-urgent" onclick="setFilter(this,'urgent')">🔴 至急</button>
+        <button class="chip" id="chip-taiou" onclick="setFilter(this,'対応依頼')">対応依頼</button>
+        <button class="chip filter-toggle-btn" onclick="toggleMoreFilters()">▼ 詳細</button>
+      </div>
+      <div class="filters filters-more" id="filters-more" style="display:none">
+        <button class="chip" id="chip-news" onclick="setFilter(this,'お知らせ')">お知らせ</button>
+        <button class="chip" id="chip-kaizen" onclick="setFilter(this,'業務改善・提案')">業務改善</button>
+        <button class="chip" id="chip-mitori" onclick="setFilter(this,'action')">未対応</button>
+        <button class="chip" id="chip-doing" onclick="setFilter(this,'doing')">対応中</button>
+        <button class="chip" id="chip-done" onclick="setFilter(this,'done')">完了</button>
       </div>
       <div class="sort-row">
         <span class="sort-label">並び替え：</span>
@@ -457,7 +469,7 @@ function showMain(){
   ).join('');
 
   loadFromGAS();
-  showTab('post');
+  showTab('board');
 }
 
 function loadFromGAS(){
@@ -552,7 +564,9 @@ function filteredPosts(){
   if(kw) fp=fp.filter(p=>(p.title||'').toLowerCase().includes(kw)||(p.body||'').toLowerCase().includes(kw)||(p.poster||'').toLowerCase().includes(kw));
   if(bFilter==='unread') fp=fp.filter(p=>!readPosts.has(p.id));
   else if(bFilter==='urgent') fp=fp.filter(p=>p.importance==='urgent');
-  else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応'||p.status==='対応中');
+  else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応');
+  else if(bFilter==='doing') fp=fp.filter(p=>p.status==='対応中');
+  else if(bFilter==='done') fp=fp.filter(p=>p.status==='完了');
   else if(bFilter!=='all') fp=fp.filter(p=>p.category===bFilter);
   const sort=document.getElementById('sort-select')?.value||'date';
   if(sort==='deadline') fp=[...fp].sort((a,b)=>{
@@ -733,15 +747,24 @@ function updateSummary(){
   const unread=vp.filter(p=>!readPosts.has(p.id)).length;
   const action=vp.filter(p=>p.status==='未対応').length;
   const progress=vp.filter(p=>p.status==='対応中').length;
-  document.getElementById('sum-unread').textContent=`未確認 ${unread}件`;
-  document.getElementById('sum-action').textContent=`対応必要 ${action}件`;
-  document.getElementById('sum-progress').textContent=`対応中 ${progress}件`;
+  document.getElementById('sum-unread').textContent=`未確認 ${unread}件 →`;
+  document.getElementById('sum-action').textContent=`対応必要 ${action}件 →`;
+  document.getElementById('sum-progress').textContent=`対応中 ${progress}件 →`;
   updateUnreadCount();
 }
 
 function renderBoard(){
   const fp=filteredPosts();
-  document.getElementById('board-list').innerHTML=fp.length?fp.map(makeCard).join(''):'<div class="empty">該当する投稿がありません</div>';
+  const total=visiblePosts().length;
+  let emptyHtml='';
+  if(!fp.length){
+    if(total===0){
+      emptyHtml='<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-msg">まだ投稿はありません</div><button class="empty-btn" onclick="showTab('post')">＋ 新規投稿する</button></div>';
+    } else {
+      emptyHtml='<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-msg">条件に一致する投稿はありません</div><button class="empty-btn" onclick="resetFilter()">絞り込みを解除する</button></div>';
+    }
+  }
+  document.getElementById('board-list').innerHTML=fp.length?fp.map(makeCard).join(''):emptyHtml;
 }
 
 function renderCurrent(){
@@ -760,6 +783,35 @@ function showTab(t){
     el.classList.toggle('active',(el.getAttribute('onclick')||'').includes("'"+t+"'"));
   });
   if(t==='board'){ renderBoard(); updateSummary(); }
+}
+
+function jumpFilter(type){
+  const filterMap={unread:'unread', action:'action', progress:'doing'};
+  const val=filterMap[type]||'all';
+  // 該当するchipを探してsetFilter
+  const chipMap={unread:'chip-unread', action:'chip-mitori', doing:'chip-doing'};
+  showTab('board');
+  bFilter=val;
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  const target=document.getElementById(chipMap[val]||'chip-all');
+  if(target) target.classList.add('on');
+  renderBoard();
+}
+
+function toggleMoreFilters(){
+  const el=document.getElementById('filters-more');
+  const btn=document.querySelector('.filter-toggle-btn');
+  const isOpen=el.style.display!=='none';
+  el.style.display=isOpen?'none':'flex';
+  if(btn) btn.textContent=isOpen?'▼ 詳細':'▲ 閉じる';
+}
+
+function resetFilter(){
+  bFilter='all';
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  const all=document.getElementById('chip-all');
+  if(all) all.classList.add('on');
+  renderBoard();
 }
 
 function setFilter(el,val){
