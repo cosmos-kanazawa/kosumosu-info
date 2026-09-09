@@ -215,7 +215,7 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
   <span class="sum-item sum-inprogress" id="sum-progress" onclick="jumpFilter('progress')" title="対応中の投稿を表示">対応中 0件 →</span>
 </div>
 
-<div class="no-access" id="no-access" style="display:none">
+<div class="no-access" id="no-access">
   <div class="icon">🔒</div>
   <h2>アクセスできません</h2>
   <p>専用URLからアクセスしてください。<br>URLが不明な場合は総務へお問い合わせください。</p>
@@ -279,15 +279,15 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
       <div class="frow">
         <label class="flabel">共有先<span class="req">*</span></label>
         <div class="share-grid" id="share-grid">
-          <div class="share-check" onclick="toggleShare(this,'自事業所')">
+          <div class="share-check" onclick="toggleShare(this)">
             <input type="checkbox" value="自事業所" onchange="updateShareDisplay()">
             <label>自事業所</label>
           </div>
-          <div class="share-check" onclick="toggleShare(this,'総務')">
+          <div class="share-check" onclick="toggleShare(this)">
             <input type="checkbox" value="総務" onchange="updateShareDisplay()">
             <label>総務</label>
           </div>
-          <div class="share-check" onclick="toggleShare(this,'全事業所')">
+          <div class="share-check" onclick="toggleShare(this)">
             <input type="checkbox" value="全事業所" onchange="updateShareDisplay()">
             <label>全事業所</label>
           </div>
@@ -416,10 +416,11 @@ function fmtDeadline(raw){
 }
 
 // 共有先チェック
-function toggleShare(el, val){
+function toggleShare(el){
   const cb=el.querySelector('input[type=checkbox]');
-  cb.checked=!cb.checked;
-  el.classList.toggle('checked', cb.checked);
+  if(cb&&cb.disabled) return;
+  if(cb) cb.checked=!cb.checked;
+  el.classList.toggle('checked', cb?cb.checked:false);
   updateShareDisplay();
 }
 
@@ -443,14 +444,8 @@ function toggleDeadline(){
 function initFromURL(){
   const hash=location.hash.replace('#','');
   const ac=ACCESS_MAP[hash];
-  if(ac){
-    cu=ac;
-    document.getElementById('no-access').style.display='none';
-    showMain();
-  } else {
-    document.getElementById('no-access').style.display='';
-    document.getElementById('main').style.display='none';
-  }
+  if(ac){ cu=ac; showMain(); }
+  else{ document.getElementById('no-access').style.display=''; document.getElementById('main').style.display='none'; }
 }
 
 function showMain(){
@@ -462,30 +457,22 @@ function showMain(){
   document.getElementById('hdr-org').textContent=cu.jigyosho;
   document.getElementById('poster-display').textContent=cu.jigyosho;
 
-  // 共有先：スタッフは自事業所のみ固定、総務は全事業所・特定事業所のみ表示
+  // 共有先：スタッフは自事業所のみ固定、総務は全事業所・総務内のみ
   if(cu.level==='staff'){
     const grid=document.getElementById('share-grid');
-    grid.innerHTML=`<div class="share-check checked"><input type="checkbox" checked disabled><label>自事業所</label></div>`;
+    grid.innerHTML='<div class="share-check checked"><input type="checkbox" checked disabled><label>自事業所</label></div>';
   } else if(cu.level==='somu'||cu.level==='admin'){
     const grid=document.getElementById('share-grid');
-    grid.innerHTML=`
-      <div class="share-check" onclick="toggleShare(this,'全事業所')">
-        <input type="checkbox" value="全事業所" onchange="updateShareDisplay()">
-        <label>全事業所</label>
-      </div>
-      <div class="share-check" onclick="toggleShare(this,'総務')">
-        <input type="checkbox" value="総務" onchange="updateShareDisplay()">
-        <label>総務内のみ</label>
-      </div>`;
-    // 特定事業所チェックは表示したまま
+    grid.innerHTML='<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="全事業所" onchange="updateShareDisplay()"><label>全事業所</label></div><div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務内のみ" onchange="updateShareDisplay()"><label>総務内のみ</label></div>';
     document.getElementById('jigyosho-checks').style.display='';
   }
 
   // 事業所別チェックを生成
   const jg=document.getElementById('jigyosho-grid');
-  jg.innerHTML=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho).map(j=>
-    `<div class="share-check" onclick="toggleShare(this,'${j}')"><input type="checkbox" value="${j}" onchange="updateShareDisplay()"><label>${j.length>10?j.slice(0,10)+'…':j}</label></div>`
-  ).join('');
+  jg.innerHTML=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho).map(j=>{
+    const label=j.length>10?j.slice(0,10)+'…':j;
+    return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="updateShareDisplay()"><label>'+label+'</label></div>';
+  }).join('');
 
   loadFromGAS();
   showTab('board');
