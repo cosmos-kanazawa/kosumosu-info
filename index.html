@@ -328,17 +328,7 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
   </div>
 </div>
 
-<!-- 総務PIN -->
-<div class="pin-screen" id="pin-screen">
-  <div class="pin-box">
-    <div class="pin-title">🔐 総務アクセス確認</div>
-    <div class="pin-desc">総務ページにアクセスするには<br>暗証番号が必要です</div>
-    <div class="pin-err" id="pin-err">暗証番号が正しくありません</div>
-    <input type="password" class="pin-input" id="pin-input" placeholder="暗証番号" onkeydown="if(event.key==='Enter')verifyPin()">
-    <button class="pin-btn" onclick="verifyPin()">確認する</button>
-    <div class="pin-back" onclick="goSelect()">← 事業所選択に戻る</div>
-  </div>
-</div>
+
 
 <!-- メイン -->
 <div class="wrap" id="main" style="display:none">
@@ -475,7 +465,6 @@ function fmtDeadline(raw){
 
 function showScreen(name){
   document.getElementById('select-screen').style.display=name==='select'?'block':'none';
-  document.getElementById('pin-screen').style.display=name==='pin'?'block':'none';
   document.getElementById('main').style.display=name==='main'?'':'none';
   document.getElementById('summary-bar').style.display=name==='main'?'flex':'none';
   document.getElementById('hdr-right').style.display=name==='main'?'flex':'none';
@@ -496,13 +485,8 @@ function confirmOk(){
   document.getElementById('confirm-overlay').classList.remove('open');
   const jigyosho=window._pendingJigyosho;
   const name=window._pendingName;
-  if(jigyosho==='総務'){
-    if(sessionStorage.getItem('somu_ok')==='1'){loginAs(jigyosho,name,'somu');return;}
-    document.getElementById('pin-input').value='';
-    document.getElementById('pin-err').style.display='none';
-    showScreen('pin'); return;
-  }
-  loginAs(jigyosho,name,'staff');
+  const level=jigyosho==='総務'?'somu':'staff';
+  loginAs(jigyosho,name,level);
 }
 
 function confirmCancel(){
@@ -552,25 +536,7 @@ function setupMain(){
   showTab('board');
 }
 
-async function verifyPin(){
-  const pin=document.getElementById('pin-input').value.trim();
-  if(!pin) return;
-  try{
-    const url=GAS_URL+'?action=verify_pin&pin='+encodeURIComponent(pin);
-    const res=await fetch(url);
-    const d=await res.json();
-    if(d.verified){
-      sessionStorage.setItem('somu_ok','1');
-      loginAs(window._pendingJigyosho||'総務', window._pendingName||'総務', 'somu');
-    } else {
-      document.getElementById('pin-err').style.display='block';
-      document.getElementById('pin-input').value='';
-    }
-  }catch(e){
-    document.getElementById('pin-err').textContent='通信エラーが発生しました';
-    document.getElementById('pin-err').style.display='block';
-  }
-}
+
 
 function init(){
   const hash=location.hash.replace('#','');
