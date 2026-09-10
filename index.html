@@ -537,7 +537,11 @@ function buildShareGrid(){
   if(!grid) return;
   if(cu.level==='somu'){
     grid.innerHTML=
-      '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務内のみ" onchange="onShareChange()"><label>総務内のみ</label></div>';
+      '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務内のみ" onchange="onShareChange()"><label>総務内のみ</label></div>'+
+      JIGYOSHO_LIST.filter(j=>j!=='総務').map(j=>{
+        const lbl=j.length>12?j.slice(0,12)+'…':j;
+        return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
+      }).join('');
   } else {
     const others=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho);
     grid.innerHTML=
