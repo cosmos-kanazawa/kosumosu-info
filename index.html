@@ -478,11 +478,15 @@ function fmtDeadline(raw){
 }
 
 function showScreen(name){
-  document.getElementById('select-screen').style.display=name==='select'?'block':'none';
-  document.getElementById('pin-screen').style.display=name==='pin'?'block':'none';
-  document.getElementById('main').style.display=name==='main'?'':'none';
-  document.getElementById('summary-bar').style.display=name==='main'?'flex':'none';
-  document.getElementById('hdr-right').style.display=name==='main'?'flex':'none';
+  function setDisplay(id, val){
+    const el=document.getElementById(id);
+    if(el) el.style.display=val;
+  }
+  setDisplay('select-screen', name==='select'?'block':'none');
+  setDisplay('pin-screen',    name==='pin'?'block':'none');
+  setDisplay('main',          name==='main'?'':'none');
+  setDisplay('summary-bar',   name==='main'?'flex':'none');
+  setDisplay('hdr-right',     name==='main'?'flex':'none');
 }
 
 function goSelect(){ showScreen('select'); }
@@ -502,8 +506,10 @@ function confirmOk(){
   const name=window._pendingName;
   if(jigyosho==='総務'){
     if(sessionStorage.getItem('somu_ok')==='1'){loginAs(jigyosho,name,'somu');return;}
-    document.getElementById('pin-input').value='';
-    document.getElementById('pin-err').style.display='none';
+    const pi=document.getElementById('pin-input');
+    const pe=document.getElementById('pin-err');
+    if(pi) pi.value='';
+    if(pe) pe.style.display='none';
     showScreen('pin');
     return;
   }
@@ -526,21 +532,19 @@ function showNameErr(){
   input.scrollIntoView({behavior:'smooth',block:'center'});
 }
 
-async function verifyPin(){
+function verifyPin(){
   const pin=document.getElementById('pin-input').value.trim();
   if(!pin) return;
-  // SHA256ハッシュで照合
-  const encoder=new TextEncoder();
-  const data=encoder.encode(pin);
-  const hashBuffer=await crypto.subtle.digest('SHA-256',data);
-  const hashArray=Array.from(new Uint8Array(hashBuffer));
-  const hashHex=hashArray.map(b=>b.toString(16).padStart(2,'0')).join('');
-  if(hashHex==='119fd6a0973e724cc1f5b8de4522f487e5988207e4d2c53fe97522c244ca3128'){
+  // 難読化照合
+  const encoded=pin.split('').map(c=>String(c.charCodeAt(0)+7)).join('');
+  if(encoded==='10611812211611812257555759'){
     sessionStorage.setItem('somu_ok','1');
     loginAs(window._pendingJigyosho||'総務',window._pendingName||'総務','somu');
   } else {
-    document.getElementById('pin-err').style.display='block';
-    document.getElementById('pin-input').value='';
+    const pe=document.getElementById('pin-err');
+    if(pe) pe.style.display='block';
+    const pi=document.getElementById('pin-input');
+    if(pi) pi.value='';
   }
 }
 
@@ -573,7 +577,7 @@ function setupMain(){
     document.getElementById('share-grid').innerHTML=
       '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="全事業所" onchange="updateShareDisplay()"><label>全事業所</label></div>'+
       '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務内のみ" onchange="updateShareDisplay()"><label>総務内のみ</label></div>';
-    document.getElementById('jigyosho-checks').style.display='';
+    const jc=document.getElementById('jigyosho-checks');if(jc)jc.style.display='';
   }
   const jg=document.getElementById('jigyosho-grid');
   jg.innerHTML=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho).map(j=>{
