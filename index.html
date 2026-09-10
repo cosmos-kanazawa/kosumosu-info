@@ -814,9 +814,25 @@ function addComment(pid){
 function deletePost(id){
   if(!confirm('この投稿を削除しますか？')) return;
   const p=allPosts.find(x=>x.id===id);
+  // まずローカルから削除して即座に画面反映
   allPosts=allPosts.filter(x=>x.id!==id);
-  fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete',target:p&&p._src==='notice'?'notice':'post',id})}).catch(()=>{});
   renderBoard();updateSummary();
+  // GASに削除を送信し、完了後に最新データを再取得
+  const target=p&&p._src==='notice'?'notice':'post';
+  fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete',target,id})})
+    .then(()=>{
+      // 少し待ってからGASの最新データを再取得
+      setTimeout(()=>{
+        fetch(GAS_URL).then(r=>r.json()).then(d=>{
+          if(d.status==='ok'){
+            const posts=(d.posts||[]).map((x,i)=>({...x,id:x.id||('g'+i),_src:'post'}));
+            const notices=(d.notices||[]).map((x,i)=>({...x,id:x.id||('gn'+i),category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+            allPosts=[...posts,...notices].sort((a,b)=>new Date(b.date)-new Date(a.date));
+            renderBoard();updateSummary();
+          }
+        }).catch(()=>{});
+      },1000);
+    }).catch(()=>{});
 }
 
 function makeCard(p){
