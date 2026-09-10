@@ -317,6 +317,20 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
   <div style="font-size:11px;text-align:center;color:var(--text3);margin-top:8px">※ 個人で使用する端末の場合のみチェックしてください</div>
 </div>
 
+<!-- 総務PIN画面 -->
+<div class="pin-screen" id="pin-screen" style="display:none;max-width:360px;margin:40px auto;padding:16px">
+  <div style="background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);padding:24px;text-align:center;box-shadow:var(--shadow)">
+    <div style="font-size:18px;font-weight:800;color:var(--pink);margin-bottom:8px">🔐 総務アクセス確認</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.6">総務ページにアクセスするには<br>暗証番号が必要です</div>
+    <div id="pin-err" style="font-size:13px;color:#991b1b;background:#fee2e2;padding:8px 12px;border-radius:var(--r);margin-bottom:10px;display:none">暗証番号が正しくありません</div>
+    <input type="password" id="pin-input" placeholder="暗証番号"
+      style="width:100%;padding:12px;font-size:20px;text-align:center;border:1.5px solid var(--border);border-radius:var(--r);outline:none;letter-spacing:0.2em;background:#fffafe;margin-bottom:12px"
+      onkeydown="if(event.key==='Enter')verifyPin()">
+    <button onclick="verifyPin()" style="width:100%;padding:12px;font-size:16px;font-weight:800;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer;margin-bottom:10px">確認する</button>
+    <div onclick="goSelect()" style="font-size:13px;color:var(--text2);cursor:pointer;text-decoration:underline">← 事業所選択に戻る</div>
+  </div>
+</div>
+
 <!-- 確認モーダル -->
 <div class="confirm-overlay" id="confirm-overlay">
   <div class="confirm-box">
@@ -465,6 +479,7 @@ function fmtDeadline(raw){
 
 function showScreen(name){
   document.getElementById('select-screen').style.display=name==='select'?'block':'none';
+  document.getElementById('pin-screen').style.display=name==='pin'?'block':'none';
   document.getElementById('main').style.display=name==='main'?'':'none';
   document.getElementById('summary-bar').style.display=name==='main'?'flex':'none';
   document.getElementById('hdr-right').style.display=name==='main'?'flex':'none';
@@ -485,8 +500,14 @@ function confirmOk(){
   document.getElementById('confirm-overlay').classList.remove('open');
   const jigyosho=window._pendingJigyosho;
   const name=window._pendingName;
-  const level=jigyosho==='総務'?'somu':'staff';
-  loginAs(jigyosho,name,level);
+  if(jigyosho==='総務'){
+    if(sessionStorage.getItem('somu_ok')==='1'){loginAs(jigyosho,name,'somu');return;}
+    document.getElementById('pin-input').value='';
+    document.getElementById('pin-err').style.display='none';
+    showScreen('pin');
+    return;
+  }
+  loginAs(jigyosho,name,'staff');
 }
 
 function confirmCancel(){
@@ -503,6 +524,34 @@ function showNameErr(){
   input.style.background='#fff5f5';
   input.focus();
   input.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+async function verifyPin(){
+  const pin=document.getElementById('pin-input').value.trim();
+  if(!pin) return;
+  // SHA256ハッシュで照合
+  const encoder=new TextEncoder();
+  const data=encoder.encode(pin);
+  const hashBuffer=await crypto.subtle.digest('SHA-256',data);
+  const hashArray=Array.from(new Uint8Array(hashBuffer));
+  const hashHex=hashArray.map(b=>b.toString(16).padStart(2,'0')).join('');
+  if(hashHex==='119fd6a0973e724cc1f5b8de4522f487e5988207e4d2c53fe97522c244ca3128'){
+    sessionStorage.setItem('somu_ok','1');
+    loginAs(window._pendingJigyosho||'総務',window._pendingName||'総務','somu');
+  } else {
+    document.getElementById('pin-err').style.display='block';
+    document.getElementById('pin-input').value='';
+  }
+}
+
+function clearNameErr(){
+  const input=document.getElementById('login-name');
+  const err=document.getElementById('name-err');
+  if(input&&input.value.trim()){
+    if(err) err.style.display='none';
+    input.style.borderColor='';
+    input.style.background='';
+  }
 }
 
 function loginAs(jigyosho,name,level){
