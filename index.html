@@ -333,12 +333,12 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
       </div>
       <div class="frow" id="share-row">
         <label class="flabel">共有先<span class="req">*</span></label>
-        <div class="share-grid" id="share-grid">
-          <div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="自事業所" onchange="updateShareDisplay()"><label>自事業所</label></div>
-          <div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務" onchange="updateShareDisplay()"><label>総務</label></div>
-          <div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="全事業所" onchange="updateShareDisplay()"><label>全事業所</label></div>
+        <div style="margin-bottom:8px">
+          <div class="share-check" onclick="toggleAllShare(this)" id="share-all-check">
+            <input type="checkbox" id="share-all-cb" onchange="onAllShareChange()"><label>全事業所</label>
+          </div>
         </div>
-        <div id="jigyosho-checks" style="display:none;margin-top:8px"><div class="share-grid" id="jigyosho-grid"></div></div>
+        <div class="share-grid" id="share-grid"></div>
       </div>
       <div class="frow">
         <label class="flabel">対応の要否</label>
