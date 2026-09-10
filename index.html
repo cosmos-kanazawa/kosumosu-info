@@ -223,6 +223,24 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 .pin-input:focus{border-color:var(--pink)}
 .pin-btn{width:100%;padding:12px;font-size:16px;font-weight:800;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer;margin-bottom:10px}
 .pin-back{font-size:13px;color:var(--text2);cursor:pointer;text-decoration:underline}
+.name-err{font-size:13px;color:#991b1b;margin-top:6px;display:none;font-weight:600}
+.name-input-err{border-color:#dc2626 !important;background:#fff5f5 !important}
+.section-step{margin-bottom:20px}
+.step-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:4px}
+.step-sub{font-size:13px;color:var(--text2);margin-bottom:12px}
+.mgmt-section{margin-top:8px;padding-top:16px;border-top:1.5px solid var(--border)}
+.mgmt-title{font-size:13px;font-weight:800;color:var(--text2);letter-spacing:0.05em;margin-bottom:10px;text-align:center}
+.somu-grid{display:flex;justify-content:center}
+.somu-grid .jigyosho-card{max-width:180px;width:100%}
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center}
+.confirm-overlay.open{display:flex}
+.confirm-box{background:var(--white);border-radius:var(--r);padding:28px 24px;max-width:340px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
+.confirm-msg{font-size:16px;font-weight:700;color:var(--text);line-height:1.6;margin-bottom:20px}
+.confirm-msg span{color:var(--pink);font-weight:800}
+.confirm-btns{display:flex;flex-direction:column;gap:10px}
+.confirm-ok{padding:12px;font-size:16px;font-weight:800;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer}
+.confirm-cancel{padding:12px;font-size:15px;font-weight:600;background:var(--white);color:var(--text2);border:1.5px solid var(--border);border-radius:var(--r);cursor:pointer}
+@media(max-width:480px){.somu-grid .jigyosho-card{max-width:100%}}
 .pin-err{font-size:13px;color:var(--red);background:var(--red-light);padding:8px 12px;border-radius:var(--r);margin-bottom:10px;display:none}
 .hdr-right{display:flex;align-items:center;gap:10px}
 .hdr-info{text-align:right}
@@ -257,28 +275,57 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 
 <!-- 事業所選択 -->
 <div class="select-screen" id="select-screen">
-  <div class="select-title">
-    <h2>事業所を選択してください</h2>
-    <p>ご自身の所属する事業所を選択してください</p>
+
+  <!-- ① お名前入力 -->
+  <div class="section-step">
+    <div class="step-title">① お名前を入力してください</div>
+    <div class="name-box" style="margin-top:0">
+      <label>お名前（投稿者名）</label>
+      <input type="text" id="login-name" placeholder="例：山田 花子"
+        style="width:100%;padding:11px 13px;font-size:16px;border:1.5px solid var(--border);border-radius:var(--r);background:#fffafe;color:var(--text);outline:none"
+        oninput="clearNameErr()">
+      <div class="name-err" id="name-err">お名前を入力してから事業所を選択してください</div>
+    </div>
   </div>
-  <div class="jigyosho-grid">
-    <div class="jigyosho-card" onclick="onSelectCard('こすもす居宅介護支援事業所金沢')"><div class="jigyosho-icon">📋</div><div class="jigyosho-name">こすもす居宅介護支援事業所金沢</div></div>
-    <div class="jigyosho-card" onclick="onSelectCard('こすもす訪問看護ステーション 金沢')"><div class="jigyosho-icon">🩺</div><div class="jigyosho-name">こすもす訪問看護ステーション 金沢</div></div>
-    <div class="jigyosho-card" onclick="onSelectCard('つつじの家訪問看護ステーション')"><div class="jigyosho-icon">🩺</div><div class="jigyosho-name">つつじの家訪問看護ステーション</div></div>
-    <div class="jigyosho-card" onclick="onSelectCard('こすもすの家（看多機）')"><div class="jigyosho-icon">🏡</div><div class="jigyosho-name">こすもすの家（看多機）</div></div>
-    <div class="jigyosho-card" onclick="onSelectCard('看多機つつじの家')"><div class="jigyosho-icon">🏡</div><div class="jigyosho-name">看多機つつじの家</div></div>
-    <div class="jigyosho-card" onclick="onSelectCard('こすもす福祉用具事業所')"><div class="jigyosho-icon">♿</div><div class="jigyosho-name">こすもす福祉用具事業所</div></div>
-    <div class="jigyosho-card somu-card" onclick="onSelectCard('総務')"><div class="jigyosho-icon">🏢</div><div class="jigyosho-name">総務</div></div>
+
+  <!-- ② 事業所選択 -->
+  <div class="section-step">
+    <div class="step-title">② 所属する事業所を選択してください</div>
+    <div class="step-sub">ご自身の所属する事業所を選択してください</div>
+    <div class="jigyosho-grid">
+      <div class="jigyosho-card" onclick="onSelectCard('こすもす居宅介護支援事業所金沢')"><div class="jigyosho-icon">📋</div><div class="jigyosho-name">こすもす居宅介護支援事業所金沢</div></div>
+      <div class="jigyosho-card" onclick="onSelectCard('こすもす訪問看護ステーション 金沢')"><div class="jigyosho-icon">🩺</div><div class="jigyosho-name">こすもす訪問看護ステーション 金沢</div></div>
+      <div class="jigyosho-card" onclick="onSelectCard('つつじの家訪問看護ステーション')"><div class="jigyosho-icon">🩺</div><div class="jigyosho-name">つつじの家訪問看護ステーション</div></div>
+      <div class="jigyosho-card" onclick="onSelectCard('こすもすの家（看多機）')"><div class="jigyosho-icon">🏡</div><div class="jigyosho-name">こすもすの家（看多機）</div></div>
+      <div class="jigyosho-card" onclick="onSelectCard('看多機つつじの家')"><div class="jigyosho-icon">🏡</div><div class="jigyosho-name">看多機つつじの家</div></div>
+      <div class="jigyosho-card" onclick="onSelectCard('こすもす福祉用具事業所')"><div class="jigyosho-icon">♿</div><div class="jigyosho-name">こすもす福祉用具事業所</div></div>
+    </div>
+    <!-- 管理部門 -->
+    <div class="mgmt-section">
+      <div class="mgmt-title">管理部門</div>
+      <div class="somu-grid">
+        <div class="jigyosho-card somu-card" onclick="onSelectCard('総務')"><div class="jigyosho-icon">🏢</div><div class="jigyosho-name">総務</div></div>
+      </div>
+    </div>
   </div>
-  <div class="name-box">
-    <label>お名前（投稿者名）</label>
-    <input type="text" id="login-name" placeholder="例：山田 花子" style="width:100%;padding:11px 13px;font-size:16px;border:1.5px solid var(--border);border-radius:var(--r);background:#fffafe;color:var(--text);outline:none">
-  </div>
+
+  <!-- 自動保存 -->
   <div class="auto-box" style="margin-top:10px">
-    <input type="checkbox" id="auto-save" checked>
+    <input type="checkbox" id="auto-save">
     <label for="auto-save">この端末では、次回からこの事業所を自動的に開く</label>
   </div>
-  <div style="font-size:11px;text-align:center;color:var(--text3);margin-top:8px">※ 共用端末の場合はチェックを外してください</div>
+  <div style="font-size:11px;text-align:center;color:var(--text3);margin-top:8px">※ 個人で使用する端末の場合のみチェックしてください</div>
+</div>
+
+<!-- 確認モーダル -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <div class="confirm-msg" id="confirm-msg">事業所を開きます。<br>よろしいですか？</div>
+    <div class="confirm-btns">
+      <button class="confirm-ok" onclick="confirmOk()">この事業所を開く</button>
+      <button class="confirm-cancel" onclick="confirmCancel()">選び直す</button>
+    </div>
+  </div>
 </div>
 
 <!-- 総務PIN -->
@@ -438,15 +485,40 @@ function goSelect(){ showScreen('select'); }
 
 function onSelectCard(jigyosho){
   const name=document.getElementById('login-name').value.trim();
-  if(!name){alert('お名前を入力してください');document.getElementById('login-name').focus();return;}
+  if(!name){showNameErr();return;}
+  window._pendingJigyosho=jigyosho;
+  window._pendingName=name;
+  document.getElementById('confirm-msg').innerHTML='<span style="color:var(--pink);font-weight:800">'+jigyosho+'</span>を開きます。<br>よろしいですか？';
+  document.getElementById('confirm-overlay').classList.add('open');
+}
+
+function confirmOk(){
+  document.getElementById('confirm-overlay').classList.remove('open');
+  const jigyosho=window._pendingJigyosho;
+  const name=window._pendingName;
   if(jigyosho==='総務'){
     if(sessionStorage.getItem('somu_ok')==='1'){loginAs(jigyosho,name,'somu');return;}
-    window._pendingJigyosho=jigyosho; window._pendingName=name;
     document.getElementById('pin-input').value='';
     document.getElementById('pin-err').style.display='none';
     showScreen('pin'); return;
   }
   loginAs(jigyosho,name,'staff');
+}
+
+function confirmCancel(){
+  document.getElementById('confirm-overlay').classList.remove('open');
+  window._pendingJigyosho=null;
+  window._pendingName=null;
+}
+
+function showNameErr(){
+  const input=document.getElementById('login-name');
+  const err=document.getElementById('name-err');
+  err.style.display='block';
+  input.style.borderColor='#dc2626';
+  input.style.background='#fff5f5';
+  input.focus();
+  input.scrollIntoView({behavior:'smooth',block:'center'});
 }
 
 function loginAs(jigyosho,name,level){
