@@ -446,6 +446,8 @@ let confirmedReads={};
 let newSeen=new Set();
 let pendingJigyosho=null;
 let loadingState='init';
+let isImageProcessing=false;
+let isSubmitting=false;
 let retryCount=0;
 const MAX_RETRY=2;
 let lastFetchTime=null;
@@ -577,6 +579,44 @@ function doLogout(){
   document.getElementById('hdr-right').style.display='none';
 }
 
+function toggleShare(el){
+  const cb=el.querySelector('input[type=checkbox]');
+  if(!cb||cb.disabled) return;
+  cb.checked=!cb.checked;
+  el.classList.toggle('checked',cb.checked);
+  onShareChange();
+}
+function toggleAllShare(el){
+  const cb=document.getElementById('share-all-cb');
+  if(!cb) return;
+  cb.checked=!cb.checked;
+  el.classList.toggle('checked',cb.checked);
+  onAllShareChange();
+}
+function onAllShareChange(){
+  const allCb=document.getElementById('share-all-cb');
+  if(!allCb) return;
+  document.querySelectorAll('#share-grid input[type=checkbox]').forEach(c=>{
+    c.checked=allCb.checked;
+    const sc=c.closest('.share-check');
+    if(sc) sc.classList.toggle('checked',allCb.checked);
+  });
+}
+function onShareChange(){
+  const checks=document.querySelectorAll('#share-grid input[type=checkbox]');
+  const allCb=document.getElementById('share-all-cb');
+  if(allCb){
+    const allChecked=[...checks].every(c=>c.checked);
+    allCb.checked=allChecked;
+    const el=document.getElementById('share-all-el');
+    if(el) el.classList.toggle('checked',allChecked);
+  }
+}
+function getSelectedShares(){
+  const allCb=document.getElementById('share-all-cb');
+  if(allCb&&allCb.checked) return ['全事業所'];
+  return [...document.querySelectorAll('#share-grid input[type=checkbox]'),...document.querySelectorAll('#jigyosho-grid input[type=checkbox]')].filter(c=>c.checked).map(c=>c.value);
+}
 function buildShareGrid(){
   const grid=document.getElementById('share-grid');
   if(!grid) return;
@@ -742,57 +782,144 @@ async function reloadAll(){
 
 
 async function submitPost(){
-  const title=document.getElementById('p-title').value.trim();
-  if(!title){alert('タイトルを入力してください');return;}
-  const shares=getSelectedShares();
-  if(!shares.length){alert('共有先を選択してください');return;}
+  // 画像処理中チェック
+  if(isImageProcessing){
+    showPostError('画像を処理中です。しばらくお待ちください。');
+    return;
+  }
+  if(isSubmitting) return;
+
   const btn=document.getElementById('post-btn');
   const ok=document.getElementById('msg-ok');
   const er=document.getElementById('msg-err');
-  ok.style.display='none';er.style.display='none';
+
+  // 必須項目チェック（alertではなく画面表示）
+  const title=document.getElementById('p-title').value.trim();
+  if(!title){ showPostError('タイトルを入力してください。'); return; }
+  const shares=getSelectedShares();
+  if(!shares.length){ showPostError('共有先を選択してください。'); return; }
+
+  isSubmitting=true;
+  ok.style.display='none'; er.style.display='none';
   btn.disabled=true;
-  const postId=(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2)));
+
+  const postId=(typeof crypto!=='undefined'&&crypto.randomUUID
+    ?crypto.randomUUID()
+    :('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2)));
   const now=new Date();
   const actionVal=document.getElementById('p-action').value;
-  let imgUrl='';let imageUploaded=false;
-  if(pImgData){
-    btn.textContent='画像を送信中...';
-    try{
-      const imgRes=await fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'upload_image',postId,imgData:pImgData,jigyosho:cu.jigyosho,date:now.toISOString()})});
-      const imgD=await imgRes.json();
-      if(imgD.status==='ok'&&imgD.imgUrl){imgUrl=imgD.imgUrl;imageUploaded=true;}
-      else if(imgD.status==='ok'&&!imgD.imgUrl){btn.disabled=false;btn.textContent='投稿する';alert('画像をDriveに保存できませんでした。管理者に連絡するか、画像なしで再投稿してください。');return;}
-      else{btn.disabled=false;btn.textContent='投稿する';const c=confirm('画像の保存に失敗しました。\nOK→画像なしで投稿する / キャンセル→やり直す');if(!c)return;pImgData=null;clearImg('p');}
-    }catch(e){btn.disabled=false;btn.textContent='投稿する';const c=confirm('画像のアップロードに失敗しました。\nOK→画像なしで投稿する / キャンセル→やり直す');if(!c)return;pImgData=null;clearImg('p');}
-  }
-  btn.textContent='投稿を保存中...';
-  const postData={id:postId,type:'post',poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
-    category:document.getElementById('p-cat').value,importance:document.getElementById('p-imp').value,
-    title,body:document.getElementById('p-body').value.trim(),share:shares.join('・'),action:actionVal,
-    deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
-    status:actionVal==='info'?'情報共有':'未対応',date:now.toISOString()};
+  let imgUrl='';
+  let imageUploaded=false;
+
   try{
-    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify(postData)});
-    const d=await res.json();
-    if(d.status==='ok'){
-      const localPost={...postData,imgUrl,imgData:null,_src:'post'};
-      allPosts.unshift(localPost);
-      ok.textContent='✓ 投稿しました';ok.style.display='block';
-      clearImg('p');
-      document.getElementById('p-title').value='';
-      document.getElementById('p-body').value='';
-      document.getElementById('p-deadline').value='';
-      setTimeout(()=>{ok.style.display='none';},4000);
-      updateSummary();showTab('board');
-    }else{
-      if(imageUploaded){try{await fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})});}catch(e2){/* 削除失敗→孤立画像としてGASに残す。deleteOrphanImagesで後から削除可能 */}}
-      er.textContent='⚠ 投稿の保存に失敗しました。再度お試しください。';er.style.display='block';
+    // ① 画像アップロード（タイムアウト30秒）
+    if(pImgData){
+      btn.textContent='画像を送信中…';
+      const imgCtrl=new AbortController();
+      const imgTimer=setTimeout(()=>imgCtrl.abort(),30000);
+      try{
+        const imgRes=await fetch(GAS_URL,{
+          method:'POST',
+          body:JSON.stringify({type:'upload_image',postId,imgData:pImgData,jigyosho:cu.jigyosho,date:now.toISOString()}),
+          signal:imgCtrl.signal
+        });
+        clearTimeout(imgTimer);
+        const imgD=await imgRes.json();
+        if(imgD.status==='ok'&&imgD.imgUrl){
+          imgUrl=imgD.imgUrl;
+          imageUploaded=true;
+        } else if(imgD.status==='ok'&&!imgD.imgUrl){
+          // Workspace制限などでDrive保存不可
+          const c=confirm('画像をDriveに保存できませんでした。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+          if(!c){ showPostError('画像の保存に失敗しました。やり直してください。'); return; }
+          pImgData=null; clearImg('p');
+        } else {
+          const c=confirm('画像の保存に失敗しました。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+          if(!c){ showPostError('画像の保存に失敗しました。やり直してください。'); return; }
+          pImgData=null; clearImg('p');
+        }
+      }catch(imgErr){
+        clearTimeout(imgTimer);
+        if(imgErr.name==='AbortError'){
+          const c=confirm('画像の送信が時間内に完了しませんでした。通信環境を確認してください。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+          if(!c){ showPostError('画像の送信がタイムアウトしました。'); return; }
+        } else {
+          const c=confirm('画像のアップロードに失敗しました。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+          if(!c){ showPostError('画像のアップロードに失敗しました。'); return; }
+        }
+        pImgData=null; clearImg('p');
+      }
     }
-  }catch(e){
-    if(imageUploaded){try{await fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})});}catch(e2){/* 削除失敗→孤立画像として残す */}}
-    er.textContent='⚠ 通信エラーが発生しました。再度お試しください。';er.style.display='block';
+
+    // ② 投稿保存（タイムアウト30秒）
+    btn.textContent='投稿を保存中…';
+    const postData={
+      id:postId,type:'post',
+      poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
+      category:document.getElementById('p-cat').value,
+      importance:document.getElementById('p-imp').value,
+      title,
+      body:document.getElementById('p-body').value.trim(),
+      share:shares.join('・'),action:actionVal,
+      deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
+      status:actionVal==='info'?'情報共有':'未対応',
+      date:now.toISOString()
+    };
+
+    const postCtrl=new AbortController();
+    const postTimer=setTimeout(()=>postCtrl.abort(),30000);
+    try{
+      const res=await fetch(GAS_URL,{
+        method:'POST',
+        body:JSON.stringify(postData),
+        signal:postCtrl.signal
+      });
+      clearTimeout(postTimer);
+      const d=await res.json();
+      if(d.status==='ok'){
+        const localPost={...postData,imgUrl,imgData:null,_src:'post'};
+        allPosts.unshift(localPost);
+        ok.textContent='✓ 投稿しました'; ok.style.display='block';
+        clearImg('p');
+        document.getElementById('p-title').value='';
+        document.getElementById('p-body').value='';
+        document.getElementById('p-deadline').value='';
+        setTimeout(()=>{ok.style.display='none';},4000);
+        updateSummary(); showTab('board');
+      } else {
+        // 投稿保存失敗 → 画像ロールバック試行
+        if(imageUploaded){
+          fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})})
+            .catch(()=>{}); // 失敗は孤立画像として管理シートに残る
+        }
+        showPostError('投稿の保存に失敗しました。再度お試しください。');
+      }
+    }catch(postErr){
+      clearTimeout(postTimer);
+      if(imageUploaded){
+        fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})})
+          .catch(()=>{});
+      }
+      if(postErr.name==='AbortError'){
+        showPostError('投稿の送信が時間内に完了しませんでした。通信環境を確認して再試行してください。');
+      } else {
+        showPostError('通信エラーが発生しました。再度お試しください。');
+      }
+    }
+  } finally {
+    // 成功・失敗・タイムアウト全てでボタンを必ず元に戻す
+    isSubmitting=false;
+    btn.disabled=false;
+    btn.textContent='投稿する';
   }
-  btn.disabled=false;btn.textContent='投稿する';
+}
+
+function showPostError(msg){
+  const er=document.getElementById('msg-err');
+  if(!er) return;
+  er.textContent='⚠ '+msg;
+  er.style.display='block';
+  er.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
 
@@ -1018,6 +1145,9 @@ function resetFilter(){bFilter='all';document.querySelectorAll('.chip').forEach(
 async function previewImg(prefix){
   const f=document.getElementById(prefix+'-img').files[0];
   if(!f) return;
+  isImageProcessing=true;
+  const btn=document.getElementById('post-btn');
+  if(btn) btn.disabled=true;
   const nm=f.name.toLowerCase();
   if(nm.endsWith('.heic')||nm.endsWith('.heif')){
     alert('HEIC/HEIF形式は対応していません。\niPhoneは設定→カメラ→フォーマット→「互換性優先」に変更するか、JPEG/PNG画像を選択してください。');
@@ -1038,6 +1168,9 @@ async function previewImg(prefix){
     alert('画像の処理に失敗しました：'+err.message+'\n別の画像を試してください。');
     document.getElementById(prefix+'-img').value=''; pImgData=null;
   }finally{
+    isImageProcessing=false;
+    const btn=document.getElementById('post-btn');
+    if(btn) btn.disabled=false;
     if(prog) prog.style.display='none';
   }
 }
