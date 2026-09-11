@@ -535,7 +535,7 @@ function startApp(jigyosho, name, level){
 }
 
 function doLogout(){
-  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set();
+  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); reactions={};
   document.getElementById('top-screen').style.display='';
   document.getElementById('main-screen').style.display='none';
   document.getElementById('summary-bar').style.display='none';
@@ -589,6 +589,42 @@ function init(){
 
 // ===== GAS連携 =====
 
+function applyReactions(reactionList){
+  // GASから取得したリアクションをreactions[postId]に反映
+  if(!reactionList) return;
+  reactionList.forEach(r=>{
+    const pid=String(r.postId||'').trim();
+    if(!pid) return;
+    const gr=getR(pid);
+    const stamp=String(r.stamp||'').trim();
+    if(!stamp) return;
+    if(!gr.stamps[stamp]) gr.stamps[stamp]=[];
+    // 重複チェック
+    const exists=gr.stamps[stamp].some(x=>
+      normalizeName(x.name)===normalizeName(r.name)&&
+      String(x.jigyosho||'').trim()===String(r.jigyosho||'').trim()
+    );
+    if(!exists) gr.stamps[stamp].push({name:r.name,jigyosho:r.jigyosho});
+  });
+}
+
+function applyComments(commentList){
+  // GASから取得したコメントをreactions[postId].commentsに反映
+  if(!commentList) return;
+  commentList.forEach(c=>{
+    const pid=String(c.postId||'').trim();
+    if(!pid||!c.text) return;
+    const gr=getR(pid);
+    // 重複チェック（日時＋投稿者＋内容）
+    const exists=gr.comments.some(x=>
+      x.date===c.date&&
+      normalizeName(x.name)===normalizeName(c.name)&&
+      x.text===c.text
+    );
+    if(!exists) gr.comments.push({name:c.name,jigyosho:c.jigyosho,text:c.text,date:c.date});
+  });
+}
+
 function applyReads(reads){
   if(!reads||!cu) return;
   const myName=normalizeName(cu.name);
@@ -605,7 +641,9 @@ function loadFromGAS(){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
-      if(d.reads) applyReads(d.reads);
+      if(d.reads)     applyReads(d.reads);
+      if(d.reactions) applyReactions(d.reactions);
+      if(d.comments)  applyComments(d.comments);
       renderBoard(); updateSummary();
     }
   }).catch(()=>{});
@@ -840,19 +878,74 @@ function toggleRead(pid){
   updateSummary();
 }
 
-function toggleStamp(pid,stamp){
-  const r=getR(pid);if(!r.stamps[stamp])r.stamps[stamp]=[];
-  const idx=r.stamps[stamp].findIndex(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
-  if(idx>=0)r.stamps[stamp].splice(idx,1);else r.stamps[stamp].push({name:cu.name,jigyosho:cu.jigyosho});
-  document.getElementById('rb-'+pid).innerHTML=makeReactionBar(pid);
+async function toggleStamp(pid,stamp){
+  const pid_str=String(pid).trim();
+  const r=getR(pid_str);
+  if(!r.stamps[stamp]) r.stamps[stamp]=[];
+  const myName=normalizeName(cu.name);
+  const myJigyosho=String(cu.jigyosho||'').trim();
+  const idx=r.stamps[stamp].findIndex(x=>
+    normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho
+  );
+  // 楽観的更新（先に表示）
+  const wasAdded=idx<0;
+  if(wasAdded) r.stamps[stamp].push({name:cu.name,jigyosho:cu.jigyosho});
+  else         r.stamps[stamp].splice(idx,1);
+  document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
+  // GASへ保存
+  try{
+    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify({
+      type:'reaction',postId:pid_str,stamp,
+      name:myName,jigyosho:myJigyosho,
+      date:new Date().toISOString()
+    })});
+    const d=await res.json();
+    if(d.status!=='ok') throw new Error(d.message||'error');
+    // GASの応答（added/removed）と楽観的更新が一致しているか確認
+    if((d.action==='added')!==wasAdded){
+      // ズレがあれば元に戻す
+      if(wasAdded){const i2=r.stamps[stamp].findIndex(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);if(i2>=0)r.stamps[stamp].splice(i2,1);}
+      else{r.stamps[stamp].push({name:cu.name,jigyosho:cu.jigyosho});}
+      document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
+    }
+  }catch(e){
+    // 保存失敗 → 元に戻す
+    if(wasAdded){const i2=r.stamps[stamp].findIndex(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);if(i2>=0)r.stamps[stamp].splice(i2,1);}
+    else{r.stamps[stamp].push({name:cu.name,jigyosho:cu.jigyosho});}
+    document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
+    alert('リアクションの保存に失敗しました。再度お試しください。');
+  }
 }
 
-function addComment(pid){
-  const el=document.getElementById('cm-input-'+pid);
+async function addComment(pid){
+  const pid_str=String(pid).trim();
+  const el=document.getElementById('cm-input-'+pid_str);
   if(!el||!el.value.trim()) return;
-  getR(pid).comments.push({name:cu.name,jigyosho:cu.jigyosho,text:el.value.trim(),date:new Date().toISOString()});
+  const text=el.value.trim();
+  const now=new Date().toISOString();
+  const comment={name:cu.name,jigyosho:cu.jigyosho,text,date:now};
+  // 先に画面に表示
+  getR(pid_str).comments.push(comment);
   el.value='';
-  document.getElementById('cm-list-'+pid).innerHTML=makeCommentList(pid);
+  document.getElementById('cm-list-'+pid_str).innerHTML=makeCommentList(pid_str);
+  // GASへ保存
+  try{
+    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify({
+      type:'comment',postId:pid_str,
+      name:normalizeName(cu.name),
+      jigyosho:String(cu.jigyosho||'').trim(),
+      text,date:now
+    })});
+    const d=await res.json();
+    if(d.status!=='ok') throw new Error(d.message||'error');
+  }catch(e){
+    // 保存失敗 → 画面からも削除
+    const r=getR(pid_str);
+    const idx=r.comments.findIndex(x=>x.date===now&&x.text===text);
+    if(idx>=0) r.comments.splice(idx,1);
+    document.getElementById('cm-list-'+pid_str).innerHTML=makeCommentList(pid_str);
+    alert('コメントの保存に失敗しました。再度お試しください。');
+  }
 }
 
 function deletePost(id){
