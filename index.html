@@ -191,6 +191,15 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 .empty-icon{font-size:40px;margin-bottom:12px}
 .empty-msg{font-size:16px;color:var(--text2);font-weight:600;margin-bottom:16px}
 .empty-btn{padding:10px 24px;font-size:15px;font-weight:700;background:var(--pink);color:#fff;border:none;border-radius:var(--r);cursor:pointer}
+.loading-state{text-align:center;padding:40px 20px;color:var(--text2);font-size:15px;font-weight:600}
+.loading-spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--pink);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error-state{text-align:center;padding:30px 20px;background:var(--white);border:1.5px solid #fca5a5;border-radius:var(--r)}
+.error-msg{font-size:15px;color:#991b1b;font-weight:600;margin-bottom:8px}
+.error-sub{font-size:13px;color:var(--text2);margin-bottom:14px}
+.retry-btn{padding:9px 20px;font-size:14px;font-weight:700;background:#fff;color:var(--pink);border:1.5px solid var(--pink);border-radius:var(--r);cursor:pointer}
+.img-warning{font-size:12px;color:#991b1b;background:#fee2e2;padding:8px 12px;border-radius:var(--r);margin-top:8px;font-weight:600;line-height:1.5}
+.img-progress{font-size:13px;color:var(--text2);padding:6px 0;display:none}
 
 @media(max-width:480px){
   .row2{grid-template-columns:1fr}
@@ -361,8 +370,10 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
         </div>
         <div class="frow">
           <label class="flabel">画像（任意）</label>
-          <div class="img-upload"><input type="file" id="p-img" accept="image/*" onchange="previewImg('p')"><div class="img-upload-label">📷 タップして画像を選択<span>JPG・PNG・GIF対応</span></div></div>
+          <div class="img-warning">⚠ 患者・利用者・職員の顔・氏名・住所・書類・医療情報を含む写真は投稿禁止です。個人情報を含む写真は絶対に投稿しないでください。</div>
+          <div class="img-upload" style="margin-top:8px"><input type="file" id="p-img" accept="image/jpeg,image/png" onchange="previewImg('p')"><div class="img-upload-label">📷 タップして画像を選択<span>JPEG・PNGのみ / 長辺1280px・2MB以内に自動圧縮</span></div></div>
           <div class="img-preview" id="p-img-preview"><img id="p-img-thumb" src=""><div class="img-clear" onclick="clearImg('p')">✕ 画像を削除</div></div>
+          <div class="img-progress" id="img-progress">⏳ 画像を処理中...</div>
         </div>
         <div class="frow" id="share-row">
           <label class="flabel">共有先<span class="req">*</span></label>
@@ -434,6 +445,10 @@ let allPosts=[], reactions={}, pImgData=null;
 let confirmedReads={};
 let newSeen=new Set();
 let pendingJigyosho=null;
+let loadingState='init';
+let retryCount=0;
+const MAX_RETRY=2;
+let lastFetchTime=null;
 
 function normalizeName(s){
   return String(s||'').replace(/　/g,' ').trim();
@@ -504,6 +519,7 @@ function doPinBack(){
 
 function startApp(jigyosho, name, level){
   cu={jigyosho, name, level};
+  allPosts=[]; confirmedReads={}; reactions={}; newSeen=new Set(); loadingState='init';
   // 保存処理（画面遷移より前に実行）
   const autoSave=document.getElementById('auto-save').checked;
   try{
@@ -535,7 +551,7 @@ function startApp(jigyosho, name, level){
 }
 
 function doLogout(){
-  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); reactions={};
+  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); reactions={}; loadingState='init';
   document.getElementById('top-screen').style.display='';
   document.getElementById('main-screen').style.display='none';
   document.getElementById('summary-bar').style.display='none';
@@ -635,248 +651,131 @@ function applyReads(reads){
     }
   });
 }
-function loadFromGAS(){
-  fetch(GAS_URL).then(r=>r.json()).then(d=>{
+
+async function loadFromGAS(){
+  loadingState='loading';
+  retryCount=0;
+  renderBoard();
+  await _fetchAndApply();
+}
+
+async function _fetchAndApply(){
+  try{
+    const res=await fetch(GAS_URL);
+    const d=await res.json();
     if(d.status==='ok'){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
+      // 確認済みはリセット後、現ユーザー分のみ適用（別ユーザーのキャッシュを使わない）
+      confirmedReads={};
       if(d.reads)     applyReads(d.reads);
       if(d.reactions) applyReactions(d.reactions);
       if(d.comments)  applyComments(d.comments);
+      loadingState='ok';
+      lastFetchTime=new Date();
+      retryCount=0;
       renderBoard(); updateSummary();
+    } else {
+      _handleLoadError();
     }
-  }).catch(()=>{});
+  }catch(e){
+    _handleLoadError();
+  }
 }
 
-function reloadAll(){
+function _handleLoadError(){
+  retryCount++;
+  if(retryCount<=MAX_RETRY){
+    setTimeout(_fetchAndApply, 3000*retryCount);
+  } else {
+    loadingState='error';
+    // allPosts・confirmedReadsは変更しない（既存データを維持）
+    renderBoard(); updateSummary();
+  }
+}
+
+
+async function reloadAll(){
   const btn=document.getElementById('reload-btn');
   btn.textContent='⏳'; btn.disabled=true;
-  fetch(GAS_URL).then(r=>r.json()).then(d=>{
+  try{
+    const res=await fetch(GAS_URL);
+    const d=await res.json();
     if(d.status==='ok'){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
-      renderBoard(); updateSummary();
+      confirmedReads={};
+      if(d.reads)     applyReads(d.reads);
+      if(d.reactions) applyReactions(d.reactions);
+      if(d.comments)  applyComments(d.comments);
+      loadingState='ok'; lastFetchTime=new Date(); retryCount=0;
+    } else {
+      loadingState='error'; // allPosts・confirmedReadsは変更しない
     }
-    btn.textContent='🔄 更新'; btn.disabled=false;
-  }).catch(()=>{btn.textContent='🔄 更新';btn.disabled=false;});
+  }catch(e){
+    loadingState='error'; // allPosts・confirmedReadsは変更しない
+  }
+  renderBoard(); updateSummary();
+  btn.textContent='🔄 更新'; btn.disabled=false;
 }
 
-// ===== 投稿 =====
+
 async function submitPost(){
   const title=document.getElementById('p-title').value.trim();
   if(!title){alert('タイトルを入力してください');return;}
   const shares=getSelectedShares();
   if(!shares.length){alert('共有先を選択してください');return;}
-  const now=new Date();
-  const actionVal=document.getElementById('p-action').value;
-  const post={
-    id:(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2))),type:'post',
-    poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
-    category:document.getElementById('p-cat').value,
-    importance:document.getElementById('p-imp').value,
-    title,body:document.getElementById('p-body').value.trim(),
-    share:shares.join('・'),action:actionVal,
-    deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
-    status:actionVal==='info'?'情報共有':'未対応',
-    date:now.toISOString(),imgData:pImgData||null,_src:'post'
-  };
-  allPosts.unshift(post);
-  clearImg('p');
-  document.getElementById('p-title').value='';
-  document.getElementById('p-body').value='';
-  document.getElementById('p-deadline').value='';
   const btn=document.getElementById('post-btn');
   const ok=document.getElementById('msg-ok');
   const er=document.getElementById('msg-err');
   ok.style.display='none';er.style.display='none';
-  btn.disabled=true;btn.textContent='送信中...';
+  btn.disabled=true;
+  const postId=(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2)));
+  const now=new Date();
+  const actionVal=document.getElementById('p-action').value;
+  let imgUrl='';let imageUploaded=false;
+  if(pImgData){
+    btn.textContent='画像を送信中...';
+    try{
+      const imgRes=await fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'upload_image',postId,imgData:pImgData,jigyosho:cu.jigyosho,date:now.toISOString()})});
+      const imgD=await imgRes.json();
+      if(imgD.status==='ok'&&imgD.imgUrl){imgUrl=imgD.imgUrl;imageUploaded=true;}
+      else if(imgD.status==='ok'&&!imgD.imgUrl){btn.disabled=false;btn.textContent='投稿する';alert('画像をDriveに保存できませんでした。管理者に連絡するか、画像なしで再投稿してください。');return;}
+      else{btn.disabled=false;btn.textContent='投稿する';const c=confirm('画像の保存に失敗しました。\nOK→画像なしで投稿する / キャンセル→やり直す');if(!c)return;pImgData=null;clearImg('p');}
+    }catch(e){btn.disabled=false;btn.textContent='投稿する';const c=confirm('画像のアップロードに失敗しました。\nOK→画像なしで投稿する / キャンセル→やり直す');if(!c)return;pImgData=null;clearImg('p');}
+  }
+  btn.textContent='投稿を保存中...';
+  const postData={id:postId,type:'post',poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
+    category:document.getElementById('p-cat').value,importance:document.getElementById('p-imp').value,
+    title,body:document.getElementById('p-body').value.trim(),share:shares.join('・'),action:actionVal,
+    deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
+    status:actionVal==='info'?'情報共有':'未対応',date:now.toISOString()};
   try{
-    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify(post)});
+    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify(postData)});
     const d=await res.json();
-    if(d.status==='ok'){if(d.imgUrl){post.imgUrl=d.imgUrl;post.imgData=null;}ok.textContent='✓ 投稿しました';ok.style.display='block';}
-    else{er.textContent='⚠ 投稿しましたがスプレッドシートへの記録に失敗しました';er.style.display='block';}
-  }catch(e){er.textContent='⚠ 投稿しましたがスプレッドシートへの記録に失敗しました';er.style.display='block';}
-  btn.disabled=false;btn.textContent='投稿する';
-  setTimeout(()=>{ok.style.display='none';er.style.display='none';},4000);
-  updateSummary();showTab('board');
-}
-
-// ===== 共有先 =====
-function toggleShare(el){
-  const cb=el.querySelector('input[type=checkbox]');
-  if(!cb||cb.disabled) return;
-  cb.checked=!cb.checked;
-  el.classList.toggle('checked',cb.checked);
-  onShareChange();
-}
-function toggleAllShare(el){
-  const cb=document.getElementById('share-all-cb');
-  if(!cb) return;
-  cb.checked=!cb.checked;
-  el.classList.toggle('checked',cb.checked);
-  onAllShareChange();
-}
-function onAllShareChange(){
-  const allCb=document.getElementById('share-all-cb');
-  if(!allCb) return;
-  document.querySelectorAll('#share-grid input[type=checkbox]').forEach(c=>{
-    c.checked=allCb.checked;
-    const sc=c.closest('.share-check');
-    if(sc) sc.classList.toggle('checked',allCb.checked);
-  });
-}
-function onShareChange(){
-  const checks=document.querySelectorAll('#share-grid input[type=checkbox]');
-  const allCb=document.getElementById('share-all-cb');
-  if(allCb){
-    const allChecked=[...checks].every(c=>c.checked);
-    allCb.checked=allChecked;
-    const el=document.getElementById('share-all-el');
-    if(el) el.classList.toggle('checked',allChecked);
-  }
-}
-function getSelectedShares(){
-  const allCb=document.getElementById('share-all-cb');
-  if(allCb&&allCb.checked) return ['全事業所'];
-  return [...document.querySelectorAll('#share-grid input[type=checkbox]')].filter(c=>c.checked).map(c=>c.value);
-}
-function toggleDeadline(){
-  const el=document.getElementById('deadline-wrap');
-  if(el) el.classList.toggle('show',document.getElementById('p-action').value==='action');
-}
-
-// ===== 表示権限 =====
-function visiblePosts(){
-  if(!cu) return [];
-  return allPosts.filter(p=>{
-    if(cu.level==='somu') return true;
-    if(!p.share) return p.jigyosho===cu.jigyosho;
-    const shares=p.share.split('・').map(s=>s.trim());
-    if(shares.includes('全事業所')) return true;
-    if(shares.includes('自事業所')&&p.jigyosho===cu.jigyosho) return true;
-    if(shares.includes(cu.jigyosho)) return true;
-    if(p.jigyosho===cu.jigyosho) return true;
-    return false;
-  });
-}
-
-function filteredPosts(){
-  let fp=visiblePosts();
-  const kw=(document.getElementById('search-input')?.value||'').trim().toLowerCase();
-  if(kw) fp=fp.filter(p=>(p.title||'').toLowerCase().includes(kw)||(p.body||'').toLowerCase().includes(kw)||(p.poster||'').toLowerCase().includes(kw));
-  if(bFilter==='unread') fp=fp.filter(p=>!confirmedReads[String(p.id).trim()]);
-  else if(bFilter==='urgent') fp=fp.filter(p=>p.importance==='urgent');
-  else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応');
-  else if(bFilter==='doing') fp=fp.filter(p=>p.status==='対応中');
-  else if(bFilter==='done') fp=fp.filter(p=>p.status==='完了');
-  else if(bFilter!=='all') fp=fp.filter(p=>p.category===bFilter);
-  const sort=document.getElementById('sort-select')?.value||'date';
-  if(sort==='deadline') fp=[...fp].sort((a,b)=>(!a.deadline&&!b.deadline)?0:!a.deadline?1:!b.deadline?-1:new Date(a.deadline)-new Date(b.deadline));
-  else if(sort==='urgency'){const uw={urgent:0,check:1,normal:2};fp=[...fp].sort((a,b)=>(uw[a.importance]||2)-(uw[b.importance]||2));}
-  return fp;
-}
-
-// ===== カード・リアクション =====
-function fmtDate(raw){
-  if(!raw) return '';
-  try{
-    const d=new Date(raw);
-    if(isNaN(d.getTime())) return String(raw);
-    const mm=d.getMonth()+1,dd=d.getDate();
-    const hh=String(d.getHours()).padStart(2,'0'),min=String(d.getMinutes()).padStart(2,'0');
-    return window.innerWidth<480?(d.toDateString()===new Date().toDateString()?`今日 ${hh}:${min}`:`${mm}/${dd} ${hh}:${min}`):
-      `${d.getFullYear()}年${mm}月${dd}日 ${hh}:${min}`;
-  }catch(e){return String(raw);}
-}
-
-function fmtDeadline(raw){
-  if(!raw) return '';
-  try{
-    const d=new Date(raw);
-    if(isNaN(d.getTime())) return String(raw);
-    const now=new Date();now.setHours(0,0,0,0);
-    const diff=Math.ceil((d-now)/(1000*60*60*24));
-    const label=`${d.getMonth()+1}/${d.getDate()}`;
-    if(diff<0) return `期限切れ(${label})`;
-    if(diff===0) return `本日期限(${label})`;
-    if(diff<=3) return `残${diff}日(${label})`;
-    return `期限:${label}`;
-  }catch(e){return String(raw);}
-}
-
-function imgHtml(item){
-  if(item.imgData) return `<div class="card-img"><img src="${item.imgData}" onclick="openModal('${item.imgData}')"></div>`;
-  if(item.imgUrl&&String(item.imgUrl).trim()){
-    const s=String(item.imgUrl);
-    if(s.includes('drive.google.com')){
-      const m1=s.match(/\/d\/([^\/\?]+)/),m2=s.match(/[?&]id=([^&]+)/);
-      const fid=m1?m1[1]:m2?m2[1]:'';
-      const url=fid?`https://drive.google.com/file/d/${fid}/view`:s;
-      return `<div class="card-img"><a href="${url}" target="_blank">📷 添付画像を見る</a></div>`;
+    if(d.status==='ok'){
+      const localPost={...postData,imgUrl,imgData:null,_src:'post'};
+      allPosts.unshift(localPost);
+      ok.textContent='✓ 投稿しました';ok.style.display='block';
+      clearImg('p');
+      document.getElementById('p-title').value='';
+      document.getElementById('p-body').value='';
+      document.getElementById('p-deadline').value='';
+      setTimeout(()=>{ok.style.display='none';},4000);
+      updateSummary();showTab('board');
+    }else{
+      if(imageUploaded){try{await fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})});}catch(e2){/* 削除失敗→孤立画像としてGASに残す。deleteOrphanImagesで後から削除可能 */}}
+      er.textContent='⚠ 投稿の保存に失敗しました。再度お試しください。';er.style.display='block';
     }
+  }catch(e){
+    if(imageUploaded){try{await fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})});}catch(e2){/* 削除失敗→孤立画像として残す */}}
+    er.textContent='⚠ 通信エラーが発生しました。再度お試しください。';er.style.display='block';
   }
-  return '';
+  btn.disabled=false;btn.textContent='投稿する';
 }
 
-function getR(pid){const k=String(pid).trim();if(!reactions[k])reactions[k]={stamps:{},reads:[],comments:[],statusHistory:[]};return reactions[k];}
-
-function makeReactionBar(pid){
-  const r=getR(pid);
-  const isRead=confirmedReads[String(pid).trim()]||r.reads.some(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
-  const readBtn=`<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid}')">${isRead?'✓ 確認済':'確認しました'}</button>`;
-  const readList=r.reads.length?`<div class="read-list">確認済：${r.reads.map(x=>x.name).join('・')}</div>`:'';
-  const stamps=STAMPS.map(s=>{
-    const users=r.stamps[s]||[];
-    const my=users.some(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
-    return `<button class="stamp-btn${my?' active':''}" onclick="toggleStamp('${pid}','${s}')">${s}<span class="stamp-count">${users.length||''}</span></button>`;
-  }).join('');
-  return readBtn+readList+stamps;
-}
-
-function makeStatusBar(pid,cur){
-  const r=getR(pid);
-  const hist=r.statusHistory.length?`<div class="status-history">最終更新：${r.statusHistory[r.statusHistory.length-1]}</div>`:'';
-  const btns=STATUS_LIST.map(s=>`<button class="status-btn${cur===s?' active':''}" onclick="changeStatus('${pid}','${s}')">${s}</button>`).join('');
-  return `<div class="status-bar"><span class="status-label">対応状況：</span>${btns}</div>${hist}`;
-}
-
-function changeStatus(pid,ns){
-  const p=allPosts.find(x=>x.id===pid);if(p)p.status=ns;
-  getR(pid).statusHistory.push(`${cu.name}が「${ns}」に変更（${fmtDate(new Date().toISOString())}）`);
-  renderBoard();updateSummary();
-}
-
-function makeCommentList(pid){
-  const r=getR(pid);
-  const vis=(r.comments||[]).filter(c=>c.jigyosho===cu.jigyosho);
-  if(!vis.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
-  return vis.map(c=>`<div class="comment-item">${c.text}<div class="comment-meta">${c.name}・${fmtDate(c.date)}</div></div>`).join('');
-}
-
-function toggleRead(pid){
-  const pid_str=String(pid).trim();
-  const isRead=confirmedReads[pid_str];
-  const r=getR(pid_str);
-  if(isRead){
-    delete confirmedReads[pid_str];
-    const idx=r.reads.findIndex(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
-    if(idx>=0)r.reads.splice(idx,1);
-  } else {
-    confirmedReads[pid_str]=true;
-    r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
-    fetch(GAS_URL,{method:'POST',body:JSON.stringify({
-      type:'read',postId:pid_str,
-      name:normalizeName(cu.name),
-      jigyosho:String(cu.jigyosho||'').trim(),
-      date:new Date().toISOString()
-    })}).catch(()=>{});
-  }
-  document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
-  updateUnreadCount();
-  updateSummary();
-}
 
 async function toggleStamp(pid,stamp){
   const pid_str=String(pid).trim();
@@ -1052,15 +951,32 @@ function jumpFilter(type){
 }
 
 function renderBoard(){
+  const list=document.getElementById('board-list');
+  if(!list) return;
+  if(loadingState==='init'||loadingState==='loading'){
+    list.innerHTML='<div class="loading-state"><div class="loading-spinner"></div><br>投稿を読み込んでいます…</div>';
+    return;
+  }
+  if(loadingState==='error'&&allPosts.length===0){
+    const ts=lastFetchTime?`<div class="error-sub">最終取得: ${fmtDate(lastFetchTime.toISOString())}</div>`:'';
+    list.innerHTML=`<div class="error-state"><div class="error-msg">情報を取得できませんでした</div>${ts}<button class="retry-btn" onclick="reloadAll()">再試行する</button></div>`;
+    return;
+  }
   const fp=filteredPosts(),total=visiblePosts().length;
   let empty='';
   if(!fp.length){
-    empty=total===0?
-      '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-msg">まだ投稿はありません</div><button class="empty-btn" onclick="showTab(&quot;post&quot;)">＋ 新規投稿する</button></div>':
-      '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-msg">条件に一致する投稿はありません</div><button class="empty-btn" onclick="resetFilter()">絞り込みを解除する</button></div>';
+    if(loadingState==='error'){
+      const ts=lastFetchTime?`最終取得: ${fmtDate(lastFetchTime.toISOString())}（古いデータを表示中）`:'';
+      empty=`<div class="error-state"><div class="error-msg">最新情報を取得できませんでした</div><div class="error-sub">${ts}</div><button class="retry-btn" onclick="reloadAll()">再試行する</button></div>`;
+    } else if(total===0){
+      empty='<div class="empty-state"><div class="empty-icon">\U0001f4ed</div><div class="empty-msg">まだ投稿はありません</div><button class="empty-btn" onclick="showTab(&quot;post&quot;)">＋ 新規投稿する</button></div>';
+    } else {
+      empty='<div class="empty-state"><div class="empty-icon">\U0001f50d</div><div class="empty-msg">条件に一致する投稿はありません</div><button class="empty-btn" onclick="resetFilter()">絞り込みを解除する</button></div>';
+    }
   }
-  document.getElementById('board-list').innerHTML=fp.length?fp.map(makeCard).join(''):empty;
+  list.innerHTML=fp.length?fp.map(makeCard).join(''):empty;
 }
+
 
 function showTab(t){
   ['post','board'].forEach(n=>{const el=document.getElementById('tab-'+n);if(el)el.style.display=n===t?'':'none';});
@@ -1074,8 +990,193 @@ function toggleMoreFilters(){
   const open=el.style.display!=='none';el.style.display=open?'none':'flex';if(btn)btn.textContent=open?'▼ 詳細':'▲ 閉じる';
 }
 function resetFilter(){bFilter='all';document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));const a=document.getElementById('chip-all');if(a)a.classList.add('on');renderBoard();}
-function previewImg(p){const f=document.getElementById(p+'-img').files[0];if(!f)return;const r=new FileReader();r.onload=e=>{pImgData=e.target.result;document.getElementById(p+'-img-thumb').src=pImgData;document.getElementById(p+'-img-preview').style.display='block';};r.readAsDataURL(f);}
+async function previewImg(prefix){
+  const f=document.getElementById(prefix+'-img').files[0];
+  if(!f) return;
+  const nm=f.name.toLowerCase();
+  if(nm.endsWith('.heic')||nm.endsWith('.heif')){
+    alert('HEIC/HEIF形式は対応していません。\niPhoneは設定→カメラ→フォーマット→「互換性優先」に変更するか、JPEG/PNG画像を選択してください。');
+    document.getElementById(prefix+'-img').value=''; return;
+  }
+  if(f.type!=='image/jpeg'&&f.type!=='image/png'){
+    alert('JPEGまたはPNG形式の画像を選択してください。');
+    document.getElementById(prefix+'-img').value=''; return;
+  }
+  const prog=document.getElementById('img-progress');
+  if(prog) prog.style.display='block';
+  try{
+    const compressed=await compressImage(f);
+    pImgData=compressed;
+    document.getElementById(prefix+'-img-thumb').src=compressed;
+    document.getElementById(prefix+'-img-preview').style.display='block';
+  }catch(err){
+    alert('画像の処理に失敗しました：'+err.message+'\n別の画像を試してください。');
+    document.getElementById(prefix+'-img').value=''; pImgData=null;
+  }finally{
+    if(prog) prog.style.display='none';
+  }
+}
+
+async function compressImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const MAX=1280;
+      let w=img.width,h=img.height;
+      if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      // EXIFはCanvasに描き直すことで除去される
+      const dataUrl=canvas.toDataURL('image/jpeg',0.75);
+      // 2MB上限チェック（base64は元の約1.37倍）
+      if(dataUrl.length>Math.ceil(2*1024*1024*1.37)){
+        reject(new Error('圧縮後も2MBを超えています。より小さい画像を使用してください。'));
+        return;
+      }
+      resolve(dataUrl);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
+    img.src=url;
+  });
+}
 function clearImg(p){pImgData=null;document.getElementById(p+'-img').value='';document.getElementById(p+'-img-thumb').src='';document.getElementById(p+'-img-preview').style.display='none';}
+function imgHtml(item){
+  if(item.imgData){
+    const src=item.imgData;
+    return '<div class="card-img"><img src="'+src+'" onclick="openModal(this.src)" onerror="this.parentElement.innerHTML='<span style=\"font-size:13px;color:var(--text3)\">画像を表示できません</span>'"></div>';
+  }
+  if(item.imgUrl&&String(item.imgUrl).trim()){
+    const s=String(item.imgUrl);
+    if(s.includes('drive.google.com')){
+      const m1=s.match(/\/d\/([^\/\?]+)/),m2=s.match(/[?&]id=([^&]+)/);
+      const fid=m1?m1[1]:m2?m2[1]:'';
+      const url=fid?('https://drive.google.com/file/d/'+fid+'/view'):s;
+      return '<div class="card-img"><a href="'+url+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;font-size:15px;color:var(--blue);font-weight:600">📷 添付画像を見る</a></div>';
+    }
+    return '<div class="card-img"><span style="font-size:13px;color:var(--text3)">画像を表示できません</span></div>';
+  }
+  return '';
+}
+
+function fmtDate(raw){
+  if(!raw) return '';
+  try{
+    const d=new Date(raw);
+    if(isNaN(d.getTime())) return String(raw);
+    const mm=d.getMonth()+1,dd=d.getDate();
+    const hh=String(d.getHours()).padStart(2,'0'),min=String(d.getMinutes()).padStart(2,'0');
+    return window.innerWidth<480?(d.toDateString()===new Date().toDateString()?`今日 ${hh}:${min}`:`${mm}/${dd} ${hh}:${min}`):
+      `${d.getFullYear()}年${mm}月${dd}日 ${hh}:${min}`;
+  }catch(e){return String(raw);}
+}
+
+function fmtDeadline(raw){
+  if(!raw) return '';
+  try{
+    const d=new Date(raw);
+    if(isNaN(d.getTime())) return String(raw);
+    const now=new Date();now.setHours(0,0,0,0);
+    const diff=Math.ceil((d-now)/(1000*60*60*24));
+    const label=`${d.getMonth()+1}/${d.getDate()}`;
+    if(diff<0) return `期限切れ(${label})`;
+    if(diff===0) return `本日期限(${label})`;
+    if(diff<=3) return `残${diff}日(${label})`;
+    return `期限:${label}`;
+  }catch(e){return String(raw);}
+}
+
+function getR(pid){const k=String(pid).trim();if(!reactions[k])reactions[k]={stamps:{},reads:[],comments:[],statusHistory:[]};return reactions[k];}
+
+function makeReactionBar(pid){
+  const r=getR(pid);
+  const isRead=confirmedReads[String(pid).trim()]||r.reads.some(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
+  const readBtn=`<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid}')">${isRead?'✓ 確認済':'確認しました'}</button>`;
+  const readList=r.reads.length?`<div class="read-list">確認済：${r.reads.map(x=>x.name).join('・')}</div>`:'';
+  const stamps=STAMPS.map(s=>{
+    const users=r.stamps[s]||[];
+    const my=users.some(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
+    return `<button class="stamp-btn${my?' active':''}" onclick="toggleStamp('${pid}','${s}')">${s}<span class="stamp-count">${users.length||''}</span></button>`;
+  }).join('');
+  return readBtn+readList+stamps;
+}
+
+function makeStatusBar(pid,cur){
+  const r=getR(pid);
+  const hist=r.statusHistory.length?`<div class="status-history">最終更新：${r.statusHistory[r.statusHistory.length-1]}</div>`:'';
+  const btns=STATUS_LIST.map(s=>`<button class="status-btn${cur===s?' active':''}" onclick="changeStatus('${pid}','${s}')">${s}</button>`).join('');
+  return `<div class="status-bar"><span class="status-label">対応状況：</span>${btns}</div>${hist}`;
+}
+
+function changeStatus(pid,ns){
+  const p=allPosts.find(x=>x.id===pid);if(p)p.status=ns;
+  getR(pid).statusHistory.push(`${cu.name}が「${ns}」に変更（${fmtDate(new Date().toISOString())}）`);
+  renderBoard();updateSummary();
+}
+
+function makeCommentList(pid){
+  const r=getR(pid);
+  const vis=(r.comments||[]).filter(c=>String(c.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
+  if(!vis.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
+  return vis.map(c=>`<div class="comment-item">${c.text}<div class="comment-meta">${c.name}・${fmtDate(c.date)}</div></div>`).join('');
+}
+
+function toggleRead(pid){
+  const pid_str=String(pid).trim();
+  const isRead=confirmedReads[pid_str];
+  const r=getR(pid_str);
+  if(isRead){
+    delete confirmedReads[pid_str];
+    const idx=r.reads.findIndex(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
+    if(idx>=0)r.reads.splice(idx,1);
+  } else {
+    confirmedReads[pid_str]=true;
+    r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({
+      type:'read',postId:pid_str,
+      name:normalizeName(cu.name),
+      jigyosho:String(cu.jigyosho||'').trim(),
+      date:new Date().toISOString()
+    })}).catch(()=>{});
+  }
+  document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
+  updateUnreadCount();
+  updateSummary();
+}
+
+function visiblePosts(){
+  if(!cu) return [];
+  return allPosts.filter(p=>{
+    if(cu.level==='somu') return true;
+    if(!p.share) return p.jigyosho===cu.jigyosho;
+    const shares=p.share.split('・').map(s=>s.trim());
+    if(shares.includes('全事業所')) return true;
+    if(shares.includes('自事業所')&&p.jigyosho===cu.jigyosho) return true;
+    if(shares.includes(cu.jigyosho)) return true;
+    if(p.jigyosho===cu.jigyosho) return true;
+    return false;
+  });
+}
+
+function filteredPosts(){
+  let fp=visiblePosts();
+  const kw=(document.getElementById('search-input')?.value||'').trim().toLowerCase();
+  if(kw) fp=fp.filter(p=>(p.title||'').toLowerCase().includes(kw)||(p.body||'').toLowerCase().includes(kw)||(p.poster||'').toLowerCase().includes(kw));
+  if(bFilter==='unread') fp=fp.filter(p=>!confirmedReads[String(p.id).trim()]);
+  else if(bFilter==='urgent') fp=fp.filter(p=>p.importance==='urgent');
+  else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応');
+  else if(bFilter==='doing') fp=fp.filter(p=>p.status==='対応中');
+  else if(bFilter==='done') fp=fp.filter(p=>p.status==='完了');
+  else if(bFilter!=='all') fp=fp.filter(p=>p.category===bFilter);
+  const sort=document.getElementById('sort-select')?.value||'date';
+  if(sort==='deadline') fp=[...fp].sort((a,b)=>(!a.deadline&&!b.deadline)?0:!a.deadline?1:!b.deadline?-1:new Date(a.deadline)-new Date(b.deadline));
+  else if(sort==='urgency'){const uw={urgent:0,check:1,normal:2};fp=[...fp].sort((a,b)=>(uw[a.importance]||2)-(uw[b.importance]||2));}
+  return fp;
+}
+
 function openModal(src){document.getElementById('modal-img').src=src;document.getElementById('modal').classList.add('open');}
 function closeModal(){document.getElementById('modal').classList.remove('open');}
 
