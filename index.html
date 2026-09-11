@@ -430,8 +430,14 @@ const JIGYOSHO_LIST=['こすもす居宅介護支援事業所金沢','こすも�
 const PIN_CODE='10611812211611812257555759';
 
 let cu=null, bFilter='all', nextId=1;
-let allPosts=[], reactions={}, readPosts=new Set(), pImgData=null;
+let allPosts=[], reactions={}, pImgData=null;
+let confirmedReads={};
+let newSeen=new Set();
 let pendingJigyosho=null;
+
+function normalizeName(s){
+  return String(s||'').replace(/　/g,' ').trim();
+}
 
 // ===== トップページ =====
 function onNameInput(){
@@ -498,12 +504,17 @@ function doPinBack(){
 
 function startApp(jigyosho, name, level){
   cu={jigyosho, name, level};
-  // 自動保存
-  if(document.getElementById('auto-save').checked){
-    try{localStorage.setItem('kosumosu_cu', JSON.stringify(cu));}catch(e){}
-  } else {
-    try{localStorage.removeItem('kosumosu_cu');}catch(e){}
-  }
+  // 保存処理（画面遷移より前に実行）
+  const autoSave=document.getElementById('auto-save').checked;
+  try{
+    if(autoSave){
+      localStorage.setItem('kosumosu_cu', JSON.stringify(cu));
+      localStorage.setItem('kosumosu_auto', '1');
+    } else {
+      localStorage.removeItem('kosumosu_cu');
+      localStorage.removeItem('kosumosu_auto');
+    }
+  }catch(e){}
   // ヘッダー更新
   document.getElementById('hdr-name').textContent=name;
   document.getElementById('hdr-org').textContent='表示中：'+jigyosho;
@@ -524,8 +535,7 @@ function startApp(jigyosho, name, level){
 }
 
 function doLogout(){
-  try{localStorage.removeItem('kosumosu_cu');}catch(e){}
-  cu=null; allPosts=[];
+  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set();
   document.getElementById('top-screen').style.display='';
   document.getElementById('main-screen').style.display='none';
   document.getElementById('summary-bar').style.display='none';
@@ -558,14 +568,19 @@ function buildShareGrid(){
 }
 
 function init(){
-  // localStorageから復元
   try{
-    const saved=localStorage.getItem('kosumosu_cu');
-    if(saved){
-      const s=JSON.parse(saved);
-      document.getElementById('login-name').value=s.name||'';
-      startApp(s.jigyosho, s.name, s.level);
-      return;
+    const autoSave=localStorage.getItem('kosumosu_auto');
+    if(autoSave==='1'){
+      const saved=localStorage.getItem('kosumosu_cu');
+      if(saved){
+        const s=JSON.parse(saved);
+        if(s.jigyosho&&s.name&&s.level){
+          document.getElementById('login-name').value=s.name;
+          document.getElementById('auto-save').checked=true;
+          startApp(s.jigyosho, s.name, s.level);
+          return;
+        }
+      }
     }
   }catch(e){}
   document.getElementById('top-screen').style.display='';
@@ -573,12 +588,24 @@ function init(){
 }
 
 // ===== GAS連携 =====
+
+function applyReads(reads){
+  if(!reads||!cu) return;
+  const myName=normalizeName(cu.name);
+  const myJigyosho=String(cu.jigyosho||'').trim();
+  reads.forEach(r=>{
+    if(normalizeName(r.name)===myName&&String(r.jigyosho||'').trim()===myJigyosho){
+      confirmedReads[String(r.postId).trim()]=true;
+    }
+  });
+}
 function loadFromGAS(){
   fetch(GAS_URL).then(r=>r.json()).then(d=>{
     if(d.status==='ok'){
-      const p=(d.posts||[]).map((x,i)=>({...x,id:x.id||('g'+i),_src:'post'}));
-      const n=(d.notices||[]).map((x,i)=>({...x,id:x.id||('gn'+i),category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+      const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
+      const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
+      if(d.reads) applyReads(d.reads);
       renderBoard(); updateSummary();
     }
   }).catch(()=>{});
@@ -589,8 +616,8 @@ function reloadAll(){
   btn.textContent='⏳'; btn.disabled=true;
   fetch(GAS_URL).then(r=>r.json()).then(d=>{
     if(d.status==='ok'){
-      const p=(d.posts||[]).map((x,i)=>({...x,id:x.id||('g'+i),_src:'post'}));
-      const n=(d.notices||[]).map((x,i)=>({...x,id:x.id||('gn'+i),category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+      const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
+      const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
       renderBoard(); updateSummary();
     }
@@ -607,7 +634,7 @@ async function submitPost(){
   const now=new Date();
   const actionVal=document.getElementById('p-action').value;
   const post={
-    id:'p'+nextId++,type:'post',
+    id:(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2))),type:'post',
     poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
     category:document.getElementById('p-cat').value,
     importance:document.getElementById('p-imp').value,
@@ -701,7 +728,7 @@ function filteredPosts(){
   let fp=visiblePosts();
   const kw=(document.getElementById('search-input')?.value||'').trim().toLowerCase();
   if(kw) fp=fp.filter(p=>(p.title||'').toLowerCase().includes(kw)||(p.body||'').toLowerCase().includes(kw)||(p.poster||'').toLowerCase().includes(kw));
-  if(bFilter==='unread') fp=fp.filter(p=>!readPosts.has(p.id));
+  if(bFilter==='unread') fp=fp.filter(p=>!confirmedReads[String(p.id).trim()]);
   else if(bFilter==='urgent') fp=fp.filter(p=>p.importance==='urgent');
   else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応');
   else if(bFilter==='doing') fp=fp.filter(p=>p.status==='対応中');
@@ -755,11 +782,11 @@ function imgHtml(item){
   return '';
 }
 
-function getR(pid){if(!reactions[pid])reactions[pid]={stamps:{},reads:[],comments:[],statusHistory:[]};return reactions[pid];}
+function getR(pid){const k=String(pid).trim();if(!reactions[k])reactions[k]={stamps:{},reads:[],comments:[],statusHistory:[]};return reactions[k];}
 
 function makeReactionBar(pid){
   const r=getR(pid);
-  const isRead=r.reads.some(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
+  const isRead=confirmedReads[String(pid).trim()]||r.reads.some(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
   const readBtn=`<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid}')">${isRead?'✓ 確認済':'確認しました'}</button>`;
   const readList=r.reads.length?`<div class="read-list">確認済：${r.reads.map(x=>x.name).join('・')}</div>`:'';
   const stamps=STAMPS.map(s=>{
@@ -791,9 +818,26 @@ function makeCommentList(pid){
 }
 
 function toggleRead(pid){
-  const r=getR(pid),idx=r.reads.findIndex(x=>x.name===cu.name&&x.jigyosho===cu.jigyosho);
-  if(idx>=0)r.reads.splice(idx,1);else r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
-  document.getElementById('rb-'+pid).innerHTML=makeReactionBar(pid);
+  const pid_str=String(pid).trim();
+  const isRead=confirmedReads[pid_str];
+  const r=getR(pid_str);
+  if(isRead){
+    delete confirmedReads[pid_str];
+    const idx=r.reads.findIndex(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
+    if(idx>=0)r.reads.splice(idx,1);
+  } else {
+    confirmedReads[pid_str]=true;
+    r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({
+      type:'read',postId:pid_str,
+      name:normalizeName(cu.name),
+      jigyosho:String(cu.jigyosho||'').trim(),
+      date:new Date().toISOString()
+    })}).catch(()=>{});
+  }
+  document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
+  updateUnreadCount();
+  updateSummary();
 }
 
 function toggleStamp(pid,stamp){
@@ -825,8 +869,8 @@ function deletePost(id){
       setTimeout(()=>{
         fetch(GAS_URL).then(r=>r.json()).then(d=>{
           if(d.status==='ok'){
-            const posts=(d.posts||[]).map((x,i)=>({...x,id:x.id||('g'+i),_src:'post'}));
-            const notices=(d.notices||[]).map((x,i)=>({...x,id:x.id||('gn'+i),category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+            const posts=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
+            const notices=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
             allPosts=[...posts,...notices].sort((a,b)=>new Date(b.date)-new Date(a.date));
             renderBoard();updateSummary();
           }
@@ -837,17 +881,23 @@ function deletePost(id){
 
 function makeCard(p){
   const imp=p.importance||'normal';
-  const isUnread=!readPosts.has(p.id);
+  const pid_str=String(p.id).trim();
+  const isConfirmed=!!confirmedReads[pid_str];
+  // 未確認：GASの確認済み記録がない
+  const isUnread=!isConfirmed;
+  // NEW：確認済み記録がない かつ 投稿から7日以内
+  const postAge=p.date?((Date.now()-new Date(p.date).getTime())/(1000*60*60*24)):999;
+  const isNew=!isConfirmed&&postAge<=7;
   const urgClass=imp==='urgent'?'urgency-urgent':imp==='check'?'urgency-check':'';
   const urgBdg=imp==='urgent'?'<span class="bdg urg-urgent">🔴 至急対応</span>':imp==='check'?'<span class="bdg urg-check">🟡 要確認</span>':'<span class="bdg urg-normal">通常</span>';
   const catBdg=p.category?`<span class="bdg cat-${p.category}">${p.category}</span>`:'';
   const statusBdg=p.status?`<span class="status-${p.status}">${p.status}</span>`:'';
   const dlBdg=p.deadline?`<span class="deadline-badge">⏰ ${fmtDeadline(p.deadline)}</span>`:'';
   const showSt=p.action&&p.action!=='info';
-  return `<div class="card${urgClass?' '+urgClass:''}${isUnread?' unread':''}" data-pid="${p.id}">
+  return `<div class="card${urgClass?' '+urgClass:''}${isUnread?' unread':''}" data-pid="${pid_str}">
     <div class="card-summary" onclick="toggleCard(this)">
       <div class="card-chevron" style="float:right">▼</div>
-      <div class="card-row1">${isUnread?'<span class="new-badge">NEW</span>':''}${urgBdg}${catBdg}${statusBdg}${dlBdg}</div>
+      <div class="card-row1">${isNew?'<span class="new-badge">NEW</span>':''}${urgBdg}${catBdg}${statusBdg}${dlBdg}</div>
       <div class="card-title">${p.title||'(タイトルなし)'}</div>
       <div class="card-meta"><span>${fmtDate(p.date)}</span><span>${p.poster||''}／${p.jigyosho||''}</span><span class="share-badge">→ ${p.share||'自事業所'}</span></div>
     </div>
@@ -878,23 +928,21 @@ function toggleCard(el){
   if(chev)chev.classList.toggle('open',!isOpen);
   if(!isOpen){
     const pid=card.dataset.pid;
-    if(pid&&!readPosts.has(pid)){
-      readPosts.add(pid);
-      const badge=card.querySelector('.new-badge');if(badge)badge.remove();
-      card.classList.remove('unread');updateUnreadCount();
-    }
+    // カードを開いたらnewSeenに記録（セッション補助のみ）
+    if(pid) newSeen.add(pid);
+    // NEWバッジはconfirmedReadsで管理するため、ここでは削除しない
   }
 }
 
 function updateUnreadCount(){
-  const n=visiblePosts().filter(p=>!readPosts.has(p.id)).length;
+  const n=visiblePosts().filter(p=>!confirmedReads[String(p.id).trim()]).length;
   const btn=document.getElementById('tab-board-btn');
   if(btn)btn.innerHTML=n>0?`📋<br>掲示板 <span class="tab-cnt">${n}</span>`:'📋<br>掲示板';
 }
 
 function updateSummary(){
   const vp=visiblePosts();
-  document.getElementById('sum-unread').textContent=`未確認 ${vp.filter(p=>!readPosts.has(p.id)).length}件 →`;
+  document.getElementById('sum-unread').textContent=`未確認 ${vp.filter(p=>!confirmedReads[String(p.id).trim()]).length}件 →`;
   document.getElementById('sum-action').textContent=`対応必要 ${vp.filter(p=>p.status==='未対応').length}件 →`;
   document.getElementById('sum-progress').textContent=`対応中 ${vp.filter(p=>p.status==='対応中').length}件 →`;
   updateUnreadCount();
