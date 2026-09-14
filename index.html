@@ -481,6 +481,7 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
     <div class="submit-spinner"></div>
     <div class="submit-success-icon">✅</div>
     <div class="submit-msg" id="submit-msg">処理中...</div>
+    <div id="submit-hint" style="font-size:12px;color:var(--text3);margin-top:10px;display:none">通常は数秒〜20秒程度で完了します。<br>画面を閉じずにお待ちください。</div>
   </div>
 </div>
 
@@ -502,6 +503,8 @@ let loadingState='init';
 let isImageProcessing=false;
 let isSubmitting=false;
 const stampPending={}; // 連打防止：'pid_stamp'→true
+let pendingSubmission=null; // {id, payload} 再試行時に同じUUID・内容を使うために保持
+let submitSucceeded=false; // 成功時はfinallyでawait後に閉じるのでtrue中はfinallyで閉じない
 let retryCount=0;
 const MAX_RETRY=2;
 let lastFetchTime=null;
@@ -834,150 +837,217 @@ async function reloadAll(){
 
 
 async function submitPost(){
-  if(isImageProcessing){
-    showPostError('画像を処理中です。しばらくお待ちください。');
-    return;
-  }
+  if(isImageProcessing){ showPostError('画像を処理中です。しばらくお待ちください。'); return; }
   if(isSubmitting) return;
 
   const btn=document.getElementById('post-btn');
   const ok=document.getElementById('msg-ok');
   const er=document.getElementById('msg-err');
+  ok.style.display='none'; er.style.display='none';
 
   const title=document.getElementById('p-title').value.trim();
   if(!title){ showPostError('タイトルを入力してください。'); return; }
   const rawShares=getSelectedShares();
-  // 追加共有先が0件でも投稿元だけで投稿可能（エラーにしない）
-  // 投稿元事業所を先頭に追加・重複除去
   const shares=rawShares.includes('全事業所')
-    ? ['全事業所']
-    : [...new Set([cu.jigyosho, ...rawShares])];
+    ?['全事業所']:[...new Set([cu.jigyosho,...rawShares])];
+
+  // ── 再試行チェック ──
+  // pendingSubmissionがある場合、フォーム内容が変わっていないか確認
+  if(pendingSubmission){
+    const prev=pendingSubmission.payload;
+    const curBody=document.getElementById('p-body').value.trim();
+    const curCat=document.getElementById('p-cat').value;
+    const curImp=document.getElementById('p-imp').value;
+    const curAct=document.getElementById('p-action').value;
+    const curShare=shares.join('・');
+    if(prev.title!==title||prev.body!==curBody||prev.category!==curCat||
+       prev.importance!==curImp||prev.action!==curAct||prev.share!==curShare){
+      showPostError('前回の投稿と入力内容が変更されています。二重投稿を防ぐため、掲示板を更新して前回の投稿が保存されていないことを確認してください。');
+      return;
+    }
+  }
 
   isSubmitting=true;
-  ok.style.display='none'; er.style.display='none';
+  submitSucceeded=false;
   btn.disabled=true;
-  // オーバーレイ表示開始
-  showSubmitOverlay(pImgData?'画像を送信しています…':'投稿を保存しています…');
 
-  const postId=(typeof crypto!=='undefined'&&crypto.randomUUID
-    ?crypto.randomUUID()
-    :('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2)));
   const now=new Date();
   const actionVal=document.getElementById('p-action').value;
-  let imgUrl='';
+
+  // 再試行時は前回のUUIDと投稿内容を再利用
+  let postId, postPayload;
+  if(pendingSubmission){
+    postId=pendingSubmission.id;
+    postPayload=pendingSubmission.payload;
+  } else {
+    postId=(typeof crypto!=='undefined'&&crypto.randomUUID
+      ?crypto.randomUUID()
+      :('fallback_'+Date.now()+'_'+Math.random().toString(36).slice(2)));
+    postPayload={
+      id:postId,type:'post',
+      poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
+      category:document.getElementById('p-cat').value,
+      importance:document.getElementById('p-imp').value,
+      title,body:document.getElementById('p-body').value.trim(),
+      share:shares.join('・'),action:actionVal,
+      deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
+      status:actionVal==='info'?'情報共有':'未対応',
+      date:now.toISOString(),
+      fileId:'',imgUrl:''
+    };
+    // 送信前にpendingSubmissionとして保持（成功するまでリセットしない）
+    pendingSubmission={id:postId,payload:postPayload};
+  }
+
+  let imgUrl=postPayload.imgUrl||'';
   let imageUploaded=false;
+  let uploadedFileId=postPayload.fileId||'';
+
+  // 30秒後メッセージ変更
+  const longWaitTimer=setTimeout(()=>{
+    updateSubmitOverlay('処理に時間がかかっています。保存状況を確認しています…');
+  },30000);
+
+  showSubmitOverlay(pImgData?'画像を圧縮しています…':'投稿内容を保存しています…');
 
   try{
-    // ① 画像アップロード（タイムアウト30秒）
-    if(pImgData){
+    // ① 画像アップロード（初回のみ）
+    if(pImgData&&!uploadedFileId){
       updateSubmitOverlay('画像を送信しています…');
-      const imgCtrl=new AbortController();
-      const imgTimer=setTimeout(()=>imgCtrl.abort(),30000);
       try{
-        const imgRes=await fetch(GAS_URL,{
-          method:'POST',
-          body:JSON.stringify({type:'upload_image',postId,imgData:pImgData,jigyosho:cu.jigyosho,date:now.toISOString()}),
-          signal:imgCtrl.signal
-        });
-        clearTimeout(imgTimer);
-        const imgD=await imgRes.json();
+        const imgD=await fetchWithTimeout(GAS_URL,{method:'POST',
+          body:JSON.stringify({type:'upload_image',postId,imgData:pImgData,
+            jigyosho:cu.jigyosho,date:now.toISOString()})},40000);
         if(imgD.status==='ok'&&imgD.imgUrl){
           imgUrl=imgD.imgUrl;
           uploadedFileId=String(imgD.fileId||'').trim();
           imageUploaded=true;
+          pendingSubmission.payload.imgUrl=imgUrl;
+          pendingSubmission.payload.fileId=uploadedFileId;
         } else if(imgD.status==='ok'&&!imgD.imgUrl){
           hideSubmitOverlay();
           const c=confirm('画像をDriveに保存できませんでした。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
           if(!c){ showPostError('画像の保存に失敗しました。やり直してください。'); return; }
           pImgData=null; clearImg('p');
-          showSubmitOverlay('投稿を保存しています…');
+          pendingSubmission.payload.imgUrl=''; pendingSubmission.payload.fileId='';
+          showSubmitOverlay('投稿内容を保存しています…');
         } else {
           hideSubmitOverlay();
-          const c=confirm('画像の保存に失敗しました（'+( imgD.message||'不明なエラー')+'）。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+          const c=confirm('画像の保存に失敗しました（'+(imgD.message||'不明なエラー')+'）。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
           if(!c){ showPostError('画像の保存に失敗しました。やり直してください。'); return; }
           pImgData=null; clearImg('p');
-          showSubmitOverlay('投稿を保存しています…');
+          pendingSubmission.payload.imgUrl=''; pendingSubmission.payload.fileId='';
+          showSubmitOverlay('投稿内容を保存しています…');
         }
       }catch(imgErr){
-        clearTimeout(imgTimer);
         hideSubmitOverlay();
-        const isTimeout=imgErr.name==='AbortError';
-        const msg=isTimeout?'画像の送信が時間内に完了しませんでした。通信環境を確認してください。':'画像のアップロードに失敗しました。';
+        const isTO=imgErr.name==='AbortError';
+        const msg=isTO?'画像の送信が時間内に完了しませんでした。通信環境を確認してください。':'画像のアップロードに失敗しました。';
         const c=confirm(msg+'\nOK → 画像なしで投稿する\nキャンセル → やり直す');
         if(!c){ showPostError(msg); return; }
         pImgData=null; clearImg('p');
-        showSubmitOverlay('投稿を保存しています…');
+        pendingSubmission.payload.imgUrl=''; pendingSubmission.payload.fileId='';
+        showSubmitOverlay('投稿内容を保存しています…');
       }
     }
 
-    // ② 投稿保存（タイムアウト30秒）
-    updateSubmitOverlay('投稿を保存しています…');
-    const postData={
-      id:postId,type:'post',
-      poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
-      category:document.getElementById('p-cat').value,
-      importance:document.getElementById('p-imp').value,
-      title,
-      body:document.getElementById('p-body').value.trim(),
-      share:shares.join('・'),action:actionVal,
-      deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
-      status:actionVal==='info'?'情報共有':'未対応',
-      date:now.toISOString(),
-      // fileIdをGAS側の照合に使用（imgUrlは補助情報として送るが最終的にGASが生成）
-      fileId:uploadedFileId||'',
-      imgUrl:imgUrl
-    };
-    const postCtrl=new AbortController();
-    const postTimer=setTimeout(()=>postCtrl.abort(),30000);
+    // ② 投稿保存（タイムアウト25秒）
+    updateSubmitOverlay('投稿内容を保存しています…');
+    const postData={...postPayload,fileId:uploadedFileId||'',imgUrl:imgUrl};
+    let saveResult=null;
+    let saveTimedOut=false;
     try{
-      const res=await fetch(GAS_URL,{
-        method:'POST',
-        body:JSON.stringify(postData),
-        signal:postCtrl.signal
-      });
-      clearTimeout(postTimer);
-      const d=await res.json();
-      if(d.status==='ok'){
-        // 成功：緑表示→1.5秒後に掲示板へ
-        const localPost={...postData,imgUrl,imgData:null,_src:'post'};
-        allPosts.unshift(localPost);
-        showSubmitSuccess('投稿が完了しました');
-        clearImg('p');
-        document.getElementById('p-title').value='';
-        document.getElementById('p-body').value='';
-        document.getElementById('p-deadline').value='';
-        updateSummary();
-        setTimeout(()=>{ hideSubmitOverlay(); showTab('board'); },1500);
-      } else {
+      saveResult=await fetchWithTimeout(GAS_URL,{method:'POST',body:JSON.stringify(postData)},25000);
+    }catch(saveErr){
+      const isTimeout=saveErr.name==='AbortError';
+      const isBadResp=saveErr.message==='EMPTY_RESPONSE'||saveErr.message==='INVALID_JSON';
+      if(isTimeout||isBadResp){ saveTimedOut=true; }
+      else {
         if(imageUploaded){
-          fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})}).catch(()=>{});
+          fetchWithTimeout(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})},15000).catch(()=>{});
         }
-        hideSubmitOverlay();
-        if(d.code==='INVALID_IMAGE'){
-          showPostError('画像情報を確認できないため、投稿を保存できませんでした。画像を選び直して再投稿してください。');
-        } else {
-          showPostError('投稿の保存に失敗しました。再度お試しください。');
+        showPostError('通信エラーが発生しました。再度お試しください。'); return;
+      }
+    }
+
+    // ③ GASが alreadyExists:true を返した場合（重複検知）
+    if(saveResult&&saveResult.alreadyExists){
+      saveResult={status:'ok'}; // 既に保存済みなので成功扱い
+    }
+
+    // ④ タイムアウト時：最大3回確認（2秒・3秒・5秒後）
+    if(saveTimedOut){
+      updateSubmitOverlay('保存結果を確認しています…');
+      const delays=[2000,3000,5000];
+      let confirmed=false;
+      for(let i=0;i<delays.length;i++){
+        await new Promise(r=>setTimeout(r,delays[i]));
+        try{
+          const chk=await fetchWithTimeout(GAS_URL,{method:'POST',
+            body:JSON.stringify({type:'check_post',id:postId})},20000);
+          if(chk&&chk.status==='ok'&&chk.exists){
+            saveResult={status:'ok'}; confirmed=true; break;
+          } else if(chk&&chk.status==='ok'&&!chk.exists){
+            if(i===delays.length-1){
+              // 最終確認でも未存在
+              if(imageUploaded&&!uploadedFileId){
+                fetchWithTimeout(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})},15000).catch(()=>{});
+              }
+              showPostError('投稿の保存完了を確認できませんでした。入力内容は残っています。通信環境を確認して、もう一度お試しください。');
+              return;
+            }
+            // まだ保存処理中の可能性があるので次のチェックへ
+          }
+        }catch(e){
+          if(i===delays.length-1){
+            // 確認通信自体が全て失敗
+            showPostError('投稿の保存状況を確認できませんでした。二重投稿を防ぐため、掲示板を更新して投稿が表示されていないことを確認してから再試行してください。');
+            return;
+          }
         }
       }
-    }catch(postErr){
-      clearTimeout(postTimer);
-      if(imageUploaded){
-        fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})}).catch(()=>{});
-      }
+    }
+
+    // ⑤ 結果判定
+    if(saveResult&&saveResult.status==='ok'){
+      // 成功：await で1.5秒待ってから掲示板へ
+      submitSucceeded=true;
+      pendingSubmission=null; // 成功後にリセット
+      const localPost={...postData,imgUrl,imgData:null,_src:'post'};
+      allPosts.unshift(localPost);
+      showSubmitSuccess('投稿しました');
+      // フォームは成功時のみクリア
+      clearImg('p');
+      document.getElementById('p-title').value='';
+      document.getElementById('p-body').value='';
+      document.getElementById('p-deadline').value='';
+      updateSummary();
+      // awaitで待ってから移動（setTimeoutではなくawaitで確実に）
+      await new Promise(r=>setTimeout(r,1500));
       hideSubmitOverlay();
-      if(postErr.name==='AbortError'){
-        showPostError('投稿の送信が時間内に完了しませんでした。通信環境を確認して再試行してください。');
+      showTab('board');
+    } else {
+      const errCode=saveResult&&saveResult.code;
+      if(imageUploaded){
+        fetchWithTimeout(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})},15000).catch(()=>{});
+      }
+      if(errCode==='INVALID_IMAGE'){
+        showPostError('画像情報を確認できないため、投稿を保存できませんでした。画像を選び直して再投稿してください。');
+      } else if(errCode==='LOCK_TIMEOUT'){
+        showPostError('現在ほかの投稿を処理しています。しばらく待ってから、もう一度お試しください。');
       } else {
-        showPostError('通信エラーが発生しました。再度お試しください。');
+        showPostError('投稿の保存に失敗しました。再度お試しください。');
       }
     }
   } finally {
-    // 成功・失敗・タイムアウト全てでボタンと送信フラグを必ず元に戻す
+    clearTimeout(longWaitTimer);
     isSubmitting=false;
     btn.disabled=false;
     btn.textContent='投稿する';
-    // 成功時はオーバーレイのタイマー後に閉じるので、ここでは閉じない
-    // 失敗・タイムアウト時はすでにhideSubmitOverlay済み
+    // submitSucceeded=true のときは上のawaitが完了してからfinallyに到達するため
+    // この時点では hideSubmitOverlay() を呼ばない（既に呼び終わっている）
+    // 失敗・タイムアウト・エラー時は確実にオーバーレイを閉じる
+    if(!submitSucceeded) hideSubmitOverlay();
   }
 }
 
@@ -985,9 +1055,11 @@ async function submitPost(){
 function showSubmitOverlay(msg){
   const ov=document.getElementById('submit-overlay');
   const msgEl=document.getElementById('submit-msg');
+  const hintEl=document.getElementById('submit-hint');
   if(!ov||!msgEl) return;
   ov.classList.remove('success');
   msgEl.textContent=msg;
+  if(hintEl) hintEl.style.display='block';
   ov.classList.add('show');
 }
 function updateSubmitOverlay(msg){
@@ -1003,7 +1075,9 @@ function showSubmitSuccess(msg){
 }
 function hideSubmitOverlay(){
   const ov=document.getElementById('submit-overlay');
+  const hintEl=document.getElementById('submit-hint');
   if(ov){ ov.classList.remove('show','success'); }
+  if(hintEl) hintEl.style.display='none';
 }
 function showPostError(msg){
   const er=document.getElementById('msg-err');
@@ -1011,6 +1085,28 @@ function showPostError(msg){
   er.textContent='⚠ '+msg;
   er.style.display='block';
   er.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+
+// タイムアウト付きfetch共通関数
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    if (!res.ok) throw new Error('HTTP_' + res.status);
+    const text = await res.text();
+    if (!text || !text.trim()) throw new Error('EMPTY_RESPONSE');
+    let data;
+    try { data = JSON.parse(text); }
+    catch(e) { throw new Error('INVALID_JSON'); }
+    return data;
+  } catch(e) {
+    throw e;
+  } finally {
+    // 成功・失敗どちらでも必ずタイマーをクリア（不要なAbortを防ぐ）
+    clearTimeout(timer);
+  }
 }
 
 
