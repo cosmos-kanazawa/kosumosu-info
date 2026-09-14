@@ -76,8 +76,11 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 
 /* 共有先チェック */
 .share-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
-.share-check{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--r);cursor:pointer;background:#fffafe;transition:all 0.1s}
+.share-check{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--r);cursor:pointer;background:#fffafe;transition:all 0.1s;min-height:44px;box-sizing:border-box;touch-action:manipulation;user-select:none}
 .share-check:hover{border-color:var(--pink)}
+.share-check input[type=checkbox]{flex-shrink:0}
+.share-check span,.share-check label{font-size:14px;line-height:1.3;word-break:break-word}
+.share-check.selected{background:var(--pink-light,#fce8ef);border-color:var(--pink)}
 .share-check input[type=checkbox]{width:18px;height:18px;accent-color:var(--pink);cursor:pointer;flex-shrink:0}
 .share-check label{font-size:14px;font-weight:600;cursor:pointer;color:var(--text)}
 .share-check.checked{background:var(--pink-light);border-color:var(--pink)}
@@ -410,9 +413,9 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
             ※この投稿は、投稿元の事業所にも自動的に表示されます。
           </div>
           <div style="margin-bottom:8px">
-            <div class="share-check" onclick="toggleAllShare(this)" id="share-all-el">
-              <input type="checkbox" id="share-all-cb" onchange="onAllShareChange()"><label>全事業所</label>
-            </div>
+            <label class="share-check" id="share-all-el" style="touch-action:manipulation;user-select:none">
+              <input type="checkbox" id="share-all-cb" onchange="onAllShareChange()"><span>全事業所</span>
+            </label>
           </div>
           <div class="share-grid" id="share-grid"></div>
         </div>
@@ -614,7 +617,7 @@ function startApp(jigyosho, name, level){
   document.getElementById('post-from').textContent=jigyosho;
   document.getElementById('poster-display').textContent=name+'／'+jigyosho;
   // 共有先設定
-  buildShareGrid();
+  buildShareGrid(); syncShareVisuals();
   // 画面切替
   document.getElementById('top-screen').style.display='none';
   document.getElementById('main-screen').style.display='';
@@ -630,38 +633,39 @@ function doLogout(){
   document.getElementById('hdr-right').style.display='none';
 }
 
-function toggleShare(el){
-  const cb=el.querySelector('input[type=checkbox]');
-  if(!cb||cb.disabled) return;
-  cb.checked=!cb.checked;
-  el.classList.toggle('checked',cb.checked);
-  onShareChange();
-}
-function toggleAllShare(el){
-  const cb=document.getElementById('share-all-cb');
-  if(!cb) return;
-  cb.checked=!cb.checked;
-  el.classList.toggle('checked',cb.checked);
-  onAllShareChange();
-}
+// toggleShare 削除済み（label標準動作で代替）
+// toggleAllShare 削除済み（label標準動作で代替）
 function onAllShareChange(){
   const allCb=document.getElementById('share-all-cb');
   if(!allCb) return;
+  // 全個別をallCbの状態に揃える
   document.querySelectorAll('#share-grid input[type=checkbox]').forEach(c=>{
     c.checked=allCb.checked;
-    const sc=c.closest('.share-check');
-    if(sc) sc.classList.toggle('checked',allCb.checked);
   });
+  syncShareVisuals();
 }
 function onShareChange(){
-  const checks=document.querySelectorAll('#share-grid input[type=checkbox]');
+  const checks=[...document.querySelectorAll('#share-grid input[type=checkbox]')];
   const allCb=document.getElementById('share-all-cb');
-  if(allCb){
-    const allChecked=[...checks].every(c=>c.checked);
-    allCb.checked=allChecked;
-    const el=document.getElementById('share-all-el');
-    if(el) el.classList.toggle('checked',allChecked);
+  if(allCb&&checks.length>0){
+    // 全個別がONの場合に「全事業所」もON、1つでもOFFなら解除
+    allCb.checked=checks.every(c=>c.checked);
   }
+  syncShareVisuals();
+}
+
+// checkedの状態を正として、全share-checkのselectedクラスを同期する
+// プログラムでcheckedを書き換えた後も呼び出して見た目を揃える
+function syncShareVisuals(){
+  // 「全事業所」
+  const allCb=document.getElementById('share-all-cb');
+  const allEl=document.getElementById('share-all-el');
+  if(allEl) allEl.classList.toggle('selected', !!(allCb&&allCb.checked));
+  // 個別事業所
+  document.querySelectorAll('#share-grid input[type=checkbox]').forEach(cb=>{
+    const el=cb.closest('.share-check');
+    if(el) el.classList.toggle('selected', !!cb.checked);
+  });
 }
 function getSelectedShares(){
   const allCb=document.getElementById('share-all-cb');
@@ -672,23 +676,21 @@ function getSelectedShares(){
 function buildShareGrid(){
   const grid=document.getElementById('share-grid');
   if(!grid) return;
+  // labelベース構造: onclickなし、input change のみで制御
+  // チェックボックス本体・テキスト・枠どこを押しても標準動作で1回だけ切り替わる
+  const makeItem = j => {
+    const lbl=j.length>14?j.slice(0,14)+'…':j;
+    return '<label class="share-check" style="touch-action:manipulation;user-select:none">'+
+      '<input type="checkbox" value="'+j+'" onchange="onShareChange()">'+
+      '<span>'+lbl+'</span>'+
+      '</label>';
+  };
   if(cu.level==='somu'){
-    // 総務ユーザー：他事業所への追加共有先
-    // 投稿元（総務）はチェック欄に表示しない
-    grid.innerHTML=
-      JIGYOSHO_LIST.filter(j=>j!=='総務').map(j=>{
-        const lbl=j.length>12?j.slice(0,12)+'…':j;
-        return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
-      }).join('');
+    // 総務ユーザー：投稿元（総務）は除外
+    grid.innerHTML=JIGYOSHO_LIST.filter(j=>j!=='総務').map(makeItem).join('');
   } else {
-    // 一般ユーザー：投稿元事業所を除いた追加共有先のみ表示
-    // ・自事業所チェック欄は表示しない（投稿元として自動追加）
-    // ・JIGYOSHO_LIST から投稿元事業所を除外（総務は1つのみ）
-    const others=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho);
-    grid.innerHTML=others.map(j=>{
-      const lbl=j.length>12?j.slice(0,12)+'…':j;
-      return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
-    }).join('');
+    // 一般ユーザー：投稿元事業所を除外、総務は1つのみ
+    grid.innerHTML=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho).map(makeItem).join('');
   }
 }
 
