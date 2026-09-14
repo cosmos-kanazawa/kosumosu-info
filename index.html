@@ -194,6 +194,17 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 .loading-state{text-align:center;padding:40px 20px;color:var(--text2);font-size:15px;font-weight:600}
 .loading-spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--pink);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.submit-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;align-items:center;justify-content:center}
+.submit-overlay.show{display:flex}
+.submit-box{background:#fff;border-radius:16px;padding:36px 32px;text-align:center;min-width:260px;max-width:88vw;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
+.submit-spinner{display:inline-block;width:40px;height:40px;border:4px solid #ecc8d8;border-top-color:#c0394a;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px}
+.submit-msg{font-size:18px;font-weight:700;color:#3d1020;line-height:1.5}
+.submit-success .submit-spinner{display:none}
+.submit-success-icon{font-size:48px;margin-bottom:12px;display:none}
+.submit-overlay.success .submit-spinner{display:none}
+.submit-overlay.success .submit-success-icon{display:block}
+.submit-overlay.success .submit-msg{color:#1a7340}
+
 .error-state{text-align:center;padding:30px 20px;background:var(--white);border:1.5px solid #fca5a5;border-radius:var(--r)}
 .error-msg{font-size:15px;color:#991b1b;font-weight:600;margin-bottom:8px}
 .error-sub{font-size:13px;color:var(--text2);margin-bottom:14px}
@@ -431,7 +442,15 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
   </div>
 </div>
 
-<div class="modal" id="modal" onclick="closeModal()"><span class="modal-close">✕</span><img id="modal-img" src=""></div>
+<div class="submit-overlay" id="submit-overlay">
+  <div class="submit-box">
+    <div class="submit-spinner"></div>
+    <div class="submit-success-icon">✅</div>
+    <div class="submit-msg" id="submit-msg">処理中...</div>
+  </div>
+</div>
+
+<div class="modal" id="modal"  onclick="closeModal()"><span class="modal-close">✕</span><img id="modal-img" src=""></div>
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbwf8pjvqQYExXXz5uEEBHOG7cDtCEZHcszyIKo-0q6jNHJ0e0-uGO-3_q0bEgyrYJ1pmw/exec';
@@ -782,7 +801,6 @@ async function reloadAll(){
 
 
 async function submitPost(){
-  // 画像処理中チェック
   if(isImageProcessing){
     showPostError('画像を処理中です。しばらくお待ちください。');
     return;
@@ -793,15 +811,20 @@ async function submitPost(){
   const ok=document.getElementById('msg-ok');
   const er=document.getElementById('msg-err');
 
-  // 必須項目チェック（alertではなく画面表示）
   const title=document.getElementById('p-title').value.trim();
   if(!title){ showPostError('タイトルを入力してください。'); return; }
-  const shares=getSelectedShares();
+  let shares=getSelectedShares();
   if(!shares.length){ showPostError('共有先を選択してください。'); return; }
+  // 全事業所でない場合、投稿元事業所を必ず含める（自分が見られないことを防止）
+  if(!shares.includes('全事業所')&&!shares.includes(cu.jigyosho)){
+    shares=[cu.jigyosho,...shares];
+  }
 
   isSubmitting=true;
   ok.style.display='none'; er.style.display='none';
   btn.disabled=true;
+  // オーバーレイ表示開始
+  showSubmitOverlay(pImgData?'画像を送信しています…':'投稿を保存しています…');
 
   const postId=(typeof crypto!=='undefined'&&crypto.randomUUID
     ?crypto.randomUUID()
@@ -814,7 +837,7 @@ async function submitPost(){
   try{
     // ① 画像アップロード（タイムアウト30秒）
     if(pImgData){
-      btn.textContent='画像を送信中…';
+      updateSubmitOverlay('画像を送信しています…');
       const imgCtrl=new AbortController();
       const imgTimer=setTimeout(()=>imgCtrl.abort(),30000);
       try{
@@ -827,32 +850,35 @@ async function submitPost(){
         const imgD=await imgRes.json();
         if(imgD.status==='ok'&&imgD.imgUrl){
           imgUrl=imgD.imgUrl;
+          uploadedFileId=String(imgD.fileId||'').trim();
           imageUploaded=true;
         } else if(imgD.status==='ok'&&!imgD.imgUrl){
-          // Workspace制限などでDrive保存不可
+          hideSubmitOverlay();
           const c=confirm('画像をDriveに保存できませんでした。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
           if(!c){ showPostError('画像の保存に失敗しました。やり直してください。'); return; }
           pImgData=null; clearImg('p');
+          showSubmitOverlay('投稿を保存しています…');
         } else {
-          const c=confirm('画像の保存に失敗しました。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+          hideSubmitOverlay();
+          const c=confirm('画像の保存に失敗しました（'+( imgD.message||'不明なエラー')+'）。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
           if(!c){ showPostError('画像の保存に失敗しました。やり直してください。'); return; }
           pImgData=null; clearImg('p');
+          showSubmitOverlay('投稿を保存しています…');
         }
       }catch(imgErr){
         clearTimeout(imgTimer);
-        if(imgErr.name==='AbortError'){
-          const c=confirm('画像の送信が時間内に完了しませんでした。通信環境を確認してください。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
-          if(!c){ showPostError('画像の送信がタイムアウトしました。'); return; }
-        } else {
-          const c=confirm('画像のアップロードに失敗しました。\nOK → 画像なしで投稿する\nキャンセル → やり直す');
-          if(!c){ showPostError('画像のアップロードに失敗しました。'); return; }
-        }
+        hideSubmitOverlay();
+        const isTimeout=imgErr.name==='AbortError';
+        const msg=isTimeout?'画像の送信が時間内に完了しませんでした。通信環境を確認してください。':'画像のアップロードに失敗しました。';
+        const c=confirm(msg+'\nOK → 画像なしで投稿する\nキャンセル → やり直す');
+        if(!c){ showPostError(msg); return; }
         pImgData=null; clearImg('p');
+        showSubmitOverlay('投稿を保存しています…');
       }
     }
 
     // ② 投稿保存（タイムアウト30秒）
-    btn.textContent='投稿を保存中…';
+    updateSubmitOverlay('投稿を保存しています…');
     const postData={
       id:postId,type:'post',
       poster:cu.name,jigyosho:cu.jigyosho,role:cu.name,
@@ -863,9 +889,11 @@ async function submitPost(){
       share:shares.join('・'),action:actionVal,
       deadline:actionVal==='action'?document.getElementById('p-deadline').value:'',
       status:actionVal==='info'?'情報共有':'未対応',
-      date:now.toISOString()
+      date:now.toISOString(),
+      // fileIdをGAS側の照合に使用（imgUrlは補助情報として送るが最終的にGASが生成）
+      fileId:uploadedFileId||'',
+      imgUrl:imgUrl
     };
-
     const postCtrl=new AbortController();
     const postTimer=setTimeout(()=>postCtrl.abort(),30000);
     try{
@@ -877,29 +905,33 @@ async function submitPost(){
       clearTimeout(postTimer);
       const d=await res.json();
       if(d.status==='ok'){
+        // 成功：緑表示→1.5秒後に掲示板へ
         const localPost={...postData,imgUrl,imgData:null,_src:'post'};
         allPosts.unshift(localPost);
-        ok.textContent='✓ 投稿しました'; ok.style.display='block';
+        showSubmitSuccess('投稿が完了しました');
         clearImg('p');
         document.getElementById('p-title').value='';
         document.getElementById('p-body').value='';
         document.getElementById('p-deadline').value='';
-        setTimeout(()=>{ok.style.display='none';},4000);
-        updateSummary(); showTab('board');
+        updateSummary();
+        setTimeout(()=>{ hideSubmitOverlay(); showTab('board'); },1500);
       } else {
-        // 投稿保存失敗 → 画像ロールバック試行
         if(imageUploaded){
-          fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})})
-            .catch(()=>{}); // 失敗は孤立画像として管理シートに残る
+          fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})}).catch(()=>{});
         }
-        showPostError('投稿の保存に失敗しました。再度お試しください。');
+        hideSubmitOverlay();
+        if(d.code==='INVALID_IMAGE'){
+          showPostError('画像情報を確認できないため、投稿を保存できませんでした。画像を選び直して再投稿してください。');
+        } else {
+          showPostError('投稿の保存に失敗しました。再度お試しください。');
+        }
       }
     }catch(postErr){
       clearTimeout(postTimer);
       if(imageUploaded){
-        fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})})
-          .catch(()=>{});
+        fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})}).catch(()=>{});
       }
+      hideSubmitOverlay();
       if(postErr.name==='AbortError'){
         showPostError('投稿の送信が時間内に完了しませんでした。通信環境を確認して再試行してください。');
       } else {
@@ -907,13 +939,39 @@ async function submitPost(){
       }
     }
   } finally {
-    // 成功・失敗・タイムアウト全てでボタンを必ず元に戻す
+    // 成功・失敗・タイムアウト全てでボタンと送信フラグを必ず元に戻す
     isSubmitting=false;
     btn.disabled=false;
     btn.textContent='投稿する';
+    // 成功時はオーバーレイのタイマー後に閉じるので、ここでは閉じない
+    // 失敗・タイムアウト時はすでにhideSubmitOverlay済み
   }
 }
 
+
+function showSubmitOverlay(msg){
+  const ov=document.getElementById('submit-overlay');
+  const msgEl=document.getElementById('submit-msg');
+  if(!ov||!msgEl) return;
+  ov.classList.remove('success');
+  msgEl.textContent=msg;
+  ov.classList.add('show');
+}
+function updateSubmitOverlay(msg){
+  const msgEl=document.getElementById('submit-msg');
+  if(msgEl) msgEl.textContent=msg;
+}
+function showSubmitSuccess(msg){
+  const ov=document.getElementById('submit-overlay');
+  const msgEl=document.getElementById('submit-msg');
+  if(!ov||!msgEl) return;
+  ov.classList.add('success');
+  msgEl.textContent=msg;
+}
+function hideSubmitOverlay(){
+  const ov=document.getElementById('submit-overlay');
+  if(ov){ ov.classList.remove('show','success'); }
+}
 function showPostError(msg){
   const er=document.getElementById('msg-err');
   if(!er) return;
@@ -1204,15 +1262,21 @@ async function compressImage(file){
 function clearImg(p){pImgData=null;document.getElementById(p+'-img').value='';document.getElementById(p+'-img-thumb').src='';document.getElementById(p+'-img-preview').style.display='none';}
 function imgHtml(item){
   if(item.imgData){
-    // base64画像：handleImageErrorで安全に処理
     return `<div class="card-img"><img src="${item.imgData}" onclick="openModal(this.src)" onerror="handleImageError(this)"></div>`;
   }
+  // fileIdが直接あればDrive URLを構築（GASが返した値を優先）
+  const fid=String(item.fileId||'').trim();
+  if(fid){
+    const url=escapeHtml('https://drive.google.com/file/d/'+fid+'/view');
+    return `<div class="card-img"><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;font-size:15px;color:var(--blue);font-weight:600">📷 添付画像を見る</a></div>`;
+  }
+  // fileIdがない場合はimgUrlから取得（既存投稿との後方互換）
   if(item.imgUrl&&String(item.imgUrl).trim()){
     const s=String(item.imgUrl);
     if(s.includes('drive.google.com')){
       const m1=s.match(/\/d\/([^\/\?]+)/),m2=s.match(/[?&]id=([^&]+)/);
-      const fid=m1?m1[1]:m2?m2[1]:'';
-      const url=escapeHtml(fid?('https://drive.google.com/file/d/'+fid+'/view'):s);
+      const fidFromUrl=m1?m1[1]:m2?m2[1]:'';
+      const url=escapeHtml(fidFromUrl?('https://drive.google.com/file/d/'+fidFromUrl+'/view'):s);
       return `<div class="card-img"><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;font-size:15px;color:var(--blue);font-weight:600">📷 添付画像を見る</a></div>`;
     }
     return '<div class="card-img"><span style="font-size:13px;color:var(--text3)">画像を表示できません</span></div>';
@@ -1307,14 +1371,19 @@ function toggleRead(pid){
 
 function visiblePosts(){
   if(!cu) return [];
+  const myJigyosho=String(cu.jigyosho||'').trim();
   return allPosts.filter(p=>{
     if(cu.level==='somu') return true;
-    if(!p.share) return p.jigyosho===cu.jigyosho;
+    const postJigyosho=String(p.jigyosho||'').trim();
+    // 条件1: 投稿元事業所が現在の事業所と一致（同事業所の全職員が閲覧可能・既存投稿も対応）
+    if(postJigyosho===myJigyosho) return true;
+    // 条件2: 共有先に現在の事業所が含まれる
+    if(!p.share) return false;
     const shares=p.share.split('・').map(s=>s.trim());
+    // 条件3: 共有先が全事業所
     if(shares.includes('全事業所')) return true;
-    if(shares.includes('自事業所')&&p.jigyosho===cu.jigyosho) return true;
-    if(shares.includes(cu.jigyosho)) return true;
-    if(p.jigyosho===cu.jigyosho) return true;
+    if(shares.includes('自事業所')&&postJigyosho===myJigyosho) return true;
+    if(shares.includes(myJigyosho)) return true;
     return false;
   });
 }
