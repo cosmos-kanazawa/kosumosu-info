@@ -634,12 +634,14 @@ function onShareChange(){
 function getSelectedShares(){
   const allCb=document.getElementById('share-all-cb');
   if(allCb&&allCb.checked) return ['全事業所'];
-  return [...document.querySelectorAll('#share-grid input[type=checkbox]'),...document.querySelectorAll('#jigyosho-grid input[type=checkbox]')].filter(c=>c.checked).map(c=>c.value);
+  // disabled=true のチェックボックス（自事業所）も含めて取得
+  return [...document.querySelectorAll('#share-grid input[type=checkbox]')].filter(c=>c.checked).map(c=>c.value);
 }
 function buildShareGrid(){
   const grid=document.getElementById('share-grid');
   if(!grid) return;
   if(cu.level==='somu'){
+    // 総務ユーザー：他事業所への共有先
     grid.innerHTML=
       '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務内のみ" onchange="onShareChange()"><label>総務内のみ</label></div>'+
       JIGYOSHO_LIST.filter(j=>j!=='総務').map(j=>{
@@ -647,17 +649,20 @@ function buildShareGrid(){
         return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
       }).join('');
   } else {
+    // 一般ユーザー：
+    // 「自事業所」はチェック済み・解除不可（投稿元には必ず表示）
+    // 追加共有先：JIGYOSHO_LIST から自事業所を除いたもの（総務は1回だけ）
     const others=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho);
     grid.innerHTML=
-      '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="自事業所" onchange="onShareChange()"><label>自事業所</label></div>'+
-      '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務" onchange="onShareChange()"><label>総務</label></div>'+
+      '<div class="share-check checked" style="opacity:0.7;cursor:default" title="投稿元には必ず表示されます">'+
+        '<input type="checkbox" value="'+cu.jigyosho+'" onchange="onShareChange()" checked disabled>'+
+        '<label>自事業所 <small style="font-weight:normal;color:var(--text3)">（投稿元には必ず表示されます）</small></label>'+
+      '</div>'+
       others.map(j=>{
         const lbl=j.length>12?j.slice(0,12)+'…':j;
         return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
       }).join('');
-    // 自事業所を初期チェック
-    const first=grid.querySelector('input[type=checkbox]');
-    if(first){first.checked=true;first.closest('.share-check').classList.add('checked');}
+    // チェック済みの自事業所要素はすでにchecked
   }
 }
 
