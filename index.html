@@ -387,7 +387,10 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
           <div class="img-progress" id="img-progress">⏳ 画像を処理中...</div>
         </div>
         <div class="frow" id="share-row">
-          <label class="flabel">共有先<span class="req">*</span></label>
+          <label class="flabel">共有先（追加で共有する事業所）</label>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:8px;line-height:1.5">
+            ※この投稿は、投稿元の事業所にも自動的に表示されます。
+          </div>
           <div style="margin-bottom:8px">
             <div class="share-check" onclick="toggleAllShare(this)" id="share-all-el">
               <input type="checkbox" id="share-all-cb" onchange="onAllShareChange()"><label>全事業所</label>
@@ -634,35 +637,29 @@ function onShareChange(){
 function getSelectedShares(){
   const allCb=document.getElementById('share-all-cb');
   if(allCb&&allCb.checked) return ['全事業所'];
-  // disabled=true のチェックボックス（自事業所）も含めて取得
+  // 追加共有先のみ取得（投稿元事業所はsubmitPost内で自動追加）
   return [...document.querySelectorAll('#share-grid input[type=checkbox]')].filter(c=>c.checked).map(c=>c.value);
 }
 function buildShareGrid(){
   const grid=document.getElementById('share-grid');
   if(!grid) return;
   if(cu.level==='somu'){
-    // 総務ユーザー：他事業所への共有先
+    // 総務ユーザー：他事業所への追加共有先
+    // 投稿元（総務）はチェック欄に表示しない
     grid.innerHTML=
-      '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="総務内のみ" onchange="onShareChange()"><label>総務内のみ</label></div>'+
       JIGYOSHO_LIST.filter(j=>j!=='総務').map(j=>{
         const lbl=j.length>12?j.slice(0,12)+'…':j;
         return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
       }).join('');
   } else {
-    // 一般ユーザー：
-    // 「自事業所」はチェック済み・解除不可（投稿元には必ず表示）
-    // 追加共有先：JIGYOSHO_LIST から自事業所を除いたもの（総務は1回だけ）
+    // 一般ユーザー：投稿元事業所を除いた追加共有先のみ表示
+    // ・自事業所チェック欄は表示しない（投稿元として自動追加）
+    // ・JIGYOSHO_LIST から投稿元事業所を除外（総務は1つのみ）
     const others=JIGYOSHO_LIST.filter(j=>j!==cu.jigyosho);
-    grid.innerHTML=
-      '<div class="share-check checked" style="opacity:0.7;cursor:default" title="投稿元には必ず表示されます">'+
-        '<input type="checkbox" value="'+cu.jigyosho+'" onchange="onShareChange()" checked disabled>'+
-        '<label>自事業所 <small style="font-weight:normal;color:var(--text3)">（投稿元には必ず表示されます）</small></label>'+
-      '</div>'+
-      others.map(j=>{
-        const lbl=j.length>12?j.slice(0,12)+'…':j;
-        return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
-      }).join('');
-    // チェック済みの自事業所要素はすでにchecked
+    grid.innerHTML=others.map(j=>{
+      const lbl=j.length>12?j.slice(0,12)+'…':j;
+      return '<div class="share-check" onclick="toggleShare(this)"><input type="checkbox" value="'+j+'" onchange="onShareChange()"><label>'+lbl+'</label></div>';
+    }).join('');
   }
 }
 
@@ -818,12 +815,12 @@ async function submitPost(){
 
   const title=document.getElementById('p-title').value.trim();
   if(!title){ showPostError('タイトルを入力してください。'); return; }
-  let shares=getSelectedShares();
-  if(!shares.length){ showPostError('共有先を選択してください。'); return; }
-  // 全事業所でない場合、投稿元事業所を必ず含める（自分が見られないことを防止）
-  if(!shares.includes('全事業所')&&!shares.includes(cu.jigyosho)){
-    shares=[cu.jigyosho,...shares];
-  }
+  const rawShares=getSelectedShares();
+  // 追加共有先が0件でも投稿元だけで投稿可能（エラーにしない）
+  // 投稿元事業所を先頭に追加・重複除去
+  const shares=rawShares.includes('全事業所')
+    ? ['全事業所']
+    : [...new Set([cu.jigyosho, ...rawShares])];
 
   isSubmitting=true;
   ok.style.display='none'; er.style.display='none';
@@ -1098,7 +1095,11 @@ function makeCard(p){
   const safeTitle=escapeHtml(p.title||'(タイトルなし)');
   const safePoster=escapeHtml(p.poster||p.role||'');
   const safeJigyosho=escapeHtml(p.jigyosho||'');
-  const safeShare=escapeHtml(p.share||'自事業所');
+  // 既存投稿の共有先から「自事業所」を除外して表示（DBは変更しない）
+  const rawShare=String(p.share||'');
+  const shareDisplay=rawShare.split('・').map(s=>s.trim())
+    .filter(s=>s&&s!=='自事業所').join('・')||'（投稿元のみ）';
+  const safeShare=escapeHtml(shareDisplay);
   const safeBody=escapeHtml(p.body||'');
   const safeDate=escapeHtml(fmtDate(p.date));
   return `<div class="card${urgClass?' '+urgClass:''}${isUnread?' unread':''}" data-pid="${pid_str}">
