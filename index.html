@@ -503,7 +503,10 @@ let loadingState='init';
 let isImageProcessing=false;
 let isSubmitting=false;
 const stampPending={}; // 連打防止：'pid_stamp'→true
-let pendingSubmission=null; // {id, payload} 再試行時に同じUUID・内容を使うために保持
+let pendingSubmission=null;
+let seenPosts={};       // {pid:true} GASから取得した閲覧済み（現在ユーザー）
+let seenSending=new Set(); // 送信中のpid
+let seenSent=new Set();    // 送信済みのpid（重複送信防止） // {id, payload} 再試行時に同じUUID・内容を使うために保持
 let submitSucceeded=false; // 成功時はfinallyでawait後に閉じるのでtrue中はfinallyで閉じない
 let retryCount=0;
 const MAX_RETRY=2;
@@ -597,7 +600,7 @@ function doPinBack(){
 
 function startApp(jigyosho, name, level){
   cu={jigyosho, name, level};
-  allPosts=[]; confirmedReads={}; reactions={}; newSeen=new Set(); loadingState='init';
+  allPosts=[]; confirmedReads={}; seenPosts={}; seenSending=new Set(); seenSent=new Set(); reactions={}; newSeen=new Set(); loadingState='init';
   // 保存処理（画面遷移より前に実行）
   const autoSave=document.getElementById('auto-save').checked;
   try{
@@ -629,7 +632,7 @@ function startApp(jigyosho, name, level){
 }
 
 function doLogout(){
-  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); reactions={}; loadingState='init';
+  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); seenPosts={}; seenSending=new Set(); seenSent=new Set(); reactions={}; loadingState='init'; pendingSubmission=null; submitSucceeded=false;
   document.getElementById('top-screen').style.display='';
   document.getElementById('main-screen').style.display='none';
   document.getElementById('summary-bar').style.display='none';
@@ -766,6 +769,56 @@ function applyReads(reads){
   });
 }
 
+function applySeen(seens){
+  if(!seens||!cu) return;
+  const myName=normalizeName(cu.name);
+  const myJigyosho=String(cu.jigyosho||'').trim();
+  seens.forEach(s=>{
+    if(normalizeName(s.name)===myName&&String(s.jigyosho||'').trim()===myJigyosho){
+      seenPosts[String(s.postId).trim()]=true;
+    }
+  });
+}
+
+// 閲覧済みをGASへ送信（同一pidの重複送信を防ぐ）
+async function markSeen(pid_str){
+  if(!cu||!pid_str) return;
+  if(seenSent.has(pid_str)) return;    // 既に送信済み
+  if(seenSending.has(pid_str)) return; // 送信中
+  seenSending.add(pid_str);
+  // 画面上は即座に閲覧済み扱い（楽観的更新）
+  seenPosts[pid_str]=true;
+  try{
+    await fetchWithTimeout(GAS_URL,{method:'POST',body:JSON.stringify({
+      type:'seen',postId:pid_str,
+      name:normalizeName(cu.name),
+      jigyosho:String(cu.jigyosho||'').trim(),
+      date:new Date().toISOString()
+    })},15000);
+    seenSent.add(pid_str);
+    // 自動保存ONの場合のみlocalStorageへ記録（共用端末保護）
+    // 自動保存OFF時は個人情報を含む閲覧記録をlocalStorageに残さない
+    try{
+      const autoSave=localStorage.getItem('kosumosu_auto');
+      if(autoSave==='1'){
+        const key='kosumosu_seen_'+normalizeName(cu.name)+'_'+String(cu.jigyosho||'');
+        const stored=JSON.parse(localStorage.getItem(key)||'[]');
+        if(!stored.includes(pid_str)){
+          stored.push(pid_str);
+          if(stored.length>200) stored.splice(0,stored.length-200);
+          localStorage.setItem(key,JSON.stringify(stored));
+        }
+      }
+    }catch(e){}
+  }catch(e){
+    // GAS保存失敗 → seenPostsから除去して次回展開時に再試行可能にする
+    // （seenSentには追加しないため、次回markSeen呼び出し時に再送される）
+    delete seenPosts[pid_str];
+  } finally {
+    seenSending.delete(pid_str);
+  }
+}
+
 async function loadFromGAS(){
   loadingState='loading';
   retryCount=0;
@@ -781,9 +834,9 @@ async function _fetchAndApply(){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
-      // 確認済みはリセット後、現ユーザー分のみ適用（別ユーザーのキャッシュを使わない）
-      confirmedReads={};
+      confirmedReads={}; seenPosts={};
       if(d.reads)     applyReads(d.reads);
+      if(d.seens)     applySeen(d.seens);
       if(d.reactions) applyReactions(d.reactions);
       if(d.comments)  applyComments(d.comments);
       loadingState='ok';
@@ -820,8 +873,9 @@ async function reloadAll(){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
-      confirmedReads={};
+      confirmedReads={}; seenPosts={};
       if(d.reads)     applyReads(d.reads);
+      if(d.seens)     applySeen(d.seens);
       if(d.reactions) applyReactions(d.reactions);
       if(d.comments)  applyComments(d.comments);
       loadingState='ok'; lastFetchTime=new Date(); retryCount=0;
@@ -993,7 +1047,7 @@ async function submitPost(){
               if(imageUploaded&&!uploadedFileId){
                 fetchWithTimeout(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete_image',postId})},15000).catch(()=>{});
               }
-              showPostError('投稿の保存完了を確認できませんでした。入力内容は残っています。通信環境を確認して、もう一度お試しください。');
+              showPostErrorWithDiscard('投稿の保存完了を確認できませんでした。入力内容は残っています。通信環境を確認して、もう一度お試しください。');
               return;
             }
             // まだ保存処理中の可能性があるので次のチェックへ
@@ -1001,7 +1055,7 @@ async function submitPost(){
         }catch(e){
           if(i===delays.length-1){
             // 確認通信自体が全て失敗
-            showPostError('投稿の保存状況を確認できませんでした。二重投稿を防ぐため、掲示板を更新して投稿が表示されていないことを確認してから再試行してください。');
+            showPostErrorWithDiscard('投稿の保存状況を確認できませんでした。二重投稿を防ぐため、掲示板を更新して投稿が表示されていないことを確認してから再試行してください。');
             return;
           }
         }
@@ -1051,6 +1105,31 @@ async function submitPost(){
   }
 }
 
+
+// 未確定の投稿を破棄して新規入力に戻る解除手段
+// エラー表示に「破棄して新規入力する」ボタンを付けるバージョン
+function showPostErrorWithDiscard(msg){
+  const er=document.getElementById('msg-err');
+  if(!er) return;
+  er.innerHTML=escapeHtml('⚠ '+msg)+
+    '<br><button onclick="discardPendingSubmission()" style="margin-top:8px;padding:6px 14px;font-size:13px;background:#fff;color:var(--pink);border:1.5px solid var(--pink);border-radius:var(--r);cursor:pointer">破棄して新規入力する</button>';
+  er.style.display='block';
+  er.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function discardPendingSubmission(){
+  if(!pendingSubmission) return;
+  if(!confirm('前回の未確定投稿を破棄して、新しく入力し直しますか？\n\n※掲示板に投稿が表示されている場合は破棄しないでください。')) return;
+  pendingSubmission=null;
+  submitSucceeded=false;
+  // エラー表示とフォームをリセット
+  const er=document.getElementById('msg-err');
+  if(er){ er.style.display='none'; er.textContent=''; }
+  document.getElementById('p-title').value='';
+  document.getElementById('p-body').value='';
+  document.getElementById('p-deadline').value='';
+  clearImg('p');
+}
 
 function showSubmitOverlay(msg){
   const ov=document.getElementById('submit-overlay');
@@ -1218,8 +1297,9 @@ function makeCard(p){
   const pid_str=String(p.id).trim();
   const isConfirmed=!!confirmedReads[pid_str];
   const isUnread=!isConfirmed;
+  const isSeen=!!seenPosts[pid_str]||isConfirmed;
   const postAge=p.date?((Date.now()-new Date(p.date).getTime())/(1000*60*60*24)):999;
-  const isNew=!isConfirmed&&postAge<=7;
+  const isNew=!isSeen&&postAge<=7;
   const urgClass=imp==='urgent'?'urgency-urgent':imp==='check'?'urgency-check':'';
   const urgBdg=imp==='urgent'?'<span class="bdg urg-urgent">🔴 至急対応</span>':imp==='check'?'<span class="bdg urg-check">🟡 要確認</span>':'<span class="bdg urg-normal">通常</span>';
   const cat=escapeHtml(p.category||'');
@@ -1272,9 +1352,16 @@ function toggleCard(el){
   if(chev)chev.classList.toggle('open',!isOpen);
   if(!isOpen){
     const pid=card.dataset.pid;
-    // カードを開いたらnewSeenに記録（セッション補助のみ）
-    if(pid) newSeen.add(pid);
-    // NEWバッジはconfirmedReadsで管理するため、ここでは削除しない
+    if(pid){
+      newSeen.add(pid);
+      // 未閲覧なら閲覧済みとして記録しNEWバッジを即座に消す
+      if(!seenPosts[pid]&&!confirmedReads[pid]){
+        seenPosts[pid]=true;
+        const badge=card.querySelector('.new-badge');
+        if(badge) badge.remove();
+        markSeen(pid).catch(()=>{});
+      }
+    }
   }
 }
 
@@ -1461,26 +1548,36 @@ function makeReactionBar(pid){
   const myName=normalizeName(cu.name);
   const myJigyosho=String(cu.jigyosho||'').trim();
   const isRead=confirmedReads[pid_str]||r.reads.some(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);
-  const readBtn=`<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid_str}')">${isRead?'✓ 確認済':'確認しました'}</button>`;
-  const readList=r.reads.length?`<div class="read-list">確認済：${r.reads.map(x=>escapeHtml(x.name)).join('・')}</div>`:'';
+  const readCnt=r.reads.length;
+  // 「理解しました」ボタン部分（登録・解除）と人数部分（モーダル）を分離
+  const readBtn=
+    `<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid_str}')" aria-label="${isRead?'理解済み':'理解しました'}">`+
+    `${isRead?'✓ 理解済み':'理解しました'}</button>`+
+    (readCnt>0
+      ?`<span class="read-count" onclick="event.stopPropagation();openReadModal('${pid_str}')" `+
+        `style="cursor:pointer;font-size:13px;font-weight:700;margin-left:4px;min-width:36px;display:inline-flex;align-items:center;padding:4px 6px;border-radius:12px;background:var(--pink-light,#fce8ef);color:var(--pink)" `+
+        `title="${readCnt}人が理解しました">${readCnt}人</span>`
+      :`<span style="font-size:12px;color:var(--text3);margin-left:4px">0人</span>`
+    );
   const stamps=STAMPS.map(s=>{
     const users=r.stamps[s]||[];
     const my=users.some(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);
     const key=pid_str+'_'+s;
     const busy=!!stampPending[key];
     const cnt=users.length;
-    // 件数部分はモーダルを開く／押下はreaction登録切替
     return `<button class="stamp-btn${my?' active':''}${busy?' disabled':''}" `+
       `onclick="toggleStamp('${pid_str}','${s}')" `+
       `${busy?'disabled':''} `+
-      `aria-label="${s}リアクション ${cnt}件">`+
+      `aria-label="${s}リアクション ${cnt}人">`+
       `${s}`+
       (cnt>0
-        ? `<span class="stamp-count" onclick="event.stopPropagation();openReactionModal('${pid_str}','${s}')" style="cursor:pointer;min-width:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 2px" title="${cnt}人が押しています">${cnt}人</span>`
-        : `<span class="stamp-count" style="min-width:28px;text-align:center;color:var(--text3)">0</span>`
+        ?`<span class="stamp-count" onclick="event.stopPropagation();openReactionModal('${pid_str}','${s}')" `+
+          `style="cursor:pointer;min-width:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 2px" `+
+          `title="${cnt}人が押しています">${cnt}人</span>`
+        :`<span class="stamp-count" style="min-width:28px;text-align:center;color:var(--text3)">0</span>`
       )+`</button>`;
   }).join('');
-  return readBtn+readList+stamps;
+  return readBtn+stamps;
 }
 
 function makeStatusBar(pid,cur){
@@ -1513,6 +1610,7 @@ function toggleRead(pid){
     if(idx>=0)r.reads.splice(idx,1);
   } else {
     confirmedReads[pid_str]=true;
+    seenPosts[pid_str]=true; // 理解しました = 当然閲覧済み
     r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
     fetch(GAS_URL,{method:'POST',body:JSON.stringify({
       type:'read',postId:pid_str,
@@ -1559,6 +1657,31 @@ function filteredPosts(){
   if(sort==='deadline') fp=[...fp].sort((a,b)=>(!a.deadline&&!b.deadline)?0:!a.deadline?1:!b.deadline?-1:new Date(a.deadline)-new Date(b.deadline));
   else if(sort==='urgency'){const uw={urgent:0,check:1,normal:2};fp=[...fp].sort((a,b)=>(uw[a.importance]||2)-(uw[b.importance]||2));}
   return fp;
+}
+
+function openReadModal(pid){
+  const pid_str=String(pid).trim();
+  // 閲覧可能な投稿のみ
+  const post=visiblePosts().find(p=>String(p.id).trim()===pid_str);
+  if(!post) return;
+  const r=getR(pid_str);
+  const users=r.reads||[];
+  if(users.length===0) return;
+  const ov=document.getElementById('reaction-modal-overlay');
+  const title=document.getElementById('reaction-modal-title');
+  const list=document.getElementById('reaction-modal-list');
+  if(!ov||!title||!list) return;
+  title.textContent='理解した人';
+  list.innerHTML=users.map(u=>{
+    const safeName=escapeHtml(u.name||'');
+    const safeJigyosho=escapeHtml(u.jigyosho||'');
+    const safeDate=u.date?('<div style="font-size:11px;color:var(--text3)">'+escapeHtml(fmtDate(u.date))+'</div>'):'';
+    return `<div class="reaction-modal-item">`+
+      `<div><div class="reaction-modal-name">${safeName}</div>`+
+      `<div class="reaction-modal-jigyosho">${safeJigyosho}</div>${safeDate}</div>`+
+      `</div>`;
+  }).join('');
+  ov.classList.add('show');
 }
 
 function openReactionModal(pid, stamp){
