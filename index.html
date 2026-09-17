@@ -770,9 +770,24 @@ function applyReads(reads){
   if(!reads||!cu) return;
   const myName=normalizeName(cu.name);
   const myJigyosho=String(cu.jigyosho||'').trim();
+  // 一覧表示用: 投稿ごとに重複除去して全確認者を reactions[pid].reads に格納
+  // 本人判定用: confirmedReads[pid] = true
   reads.forEach(r=>{
-    if(normalizeName(r.name)===myName&&String(r.jigyosho||'').trim()===myJigyosho){
-      confirmedReads[String(r.postId).trim()]=true;
+    const pid=String(r.postId||'').trim();
+    if(!pid) return;
+    const rName=normalizeName(r.name||'');
+    const rJigyosho=String(r.jigyosho||'').trim();
+    // 本人判定
+    if(rName===myName&&rJigyosho===myJigyosho){
+      confirmedReads[pid]=true;
+    }
+    // 一覧表示: getR(pid).reads に重複なしで追加
+    const gr=getR(pid);
+    const key=pid+'_'+rJigyosho+'_'+rName; // 一意キー
+    if(!gr._readKeys) gr._readKeys=new Set();
+    if(!gr._readKeys.has(key)){
+      gr._readKeys.add(key);
+      gr.reads.push({name:r.name,jigyosho:rJigyosho,date:r.date||''});
     }
   });
 }
@@ -836,16 +851,21 @@ async function loadFromGAS(){
 
 async function _fetchAndApply(){
   try{
-    const res=await fetch(GAS_URL);
-    const d=await res.json();
+    // doGet にもタイムアウトを設定（永久に読み込み中にならないよう）
+    const d=await fetchWithTimeout(GAS_URL,{}  ,45000);
     if(d.status==='ok'){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
       confirmedReads={}; seenPosts={};
+      // reactions内のreads/_readKeysもリセット（再読み込み時の二重蓄積防止）
+      // 正しい順序: reactions初期化 → applyReactions → applyReads → applySeen
+      // applyReads は getR(pid).reads に書き込むため、先に reactions を初期化してから
+      // applyReactions(stamps) → applyReads(reads) の順で上書きが発生しない
+      reactions={}; // stamps・reads・comments をまとめてリセット
+      if(d.reactions) applyReactions(d.reactions);
       if(d.reads)     applyReads(d.reads);
       if(d.seens)     applySeen(d.seens);
-      if(d.reactions) applyReactions(d.reactions);
       if(d.comments)  applyComments(d.comments);
       loadingState='ok';
       lastFetchTime=new Date();
@@ -882,9 +902,11 @@ async function reloadAll(){
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
       allPosts=[...p,...n].sort((a,b)=>new Date(b.date)-new Date(a.date));
       confirmedReads={}; seenPosts={};
+      // reactions内のreads/_readKeysもリセット（再読み込み時の二重蓄積防止）
+      reactions={};
+      if(d.reactions) applyReactions(d.reactions);
       if(d.reads)     applyReads(d.reads);
       if(d.seens)     applySeen(d.seens);
-      if(d.reactions) applyReactions(d.reactions);
       if(d.comments)  applyComments(d.comments);
       loadingState='ok'; lastFetchTime=new Date(); retryCount=0;
     } else {
@@ -1761,7 +1783,13 @@ function toggleRead(pid){
   } else {
     confirmedReads[pid_str]=true;
     seenPosts[pid_str]=true; // 理解しました = 当然閲覧済み
-    r.reads.push({name:cu.name,jigyosho:cu.jigyosho});
+    // 重複なしで一覧に追加
+    if(!r._readKeys) r._readKeys=new Set();
+    const _rk=pid_str+'_'+String(cu.jigyosho||'').trim()+'_'+normalizeName(cu.name);
+    if(!r._readKeys.has(_rk)){
+      r._readKeys.add(_rk);
+      r.reads.push({name:cu.name,jigyosho:cu.jigyosho,date:new Date().toISOString()});
+    }
     fetch(GAS_URL,{method:'POST',body:JSON.stringify({
       type:'read',postId:pid_str,
       name:normalizeName(cu.name),
