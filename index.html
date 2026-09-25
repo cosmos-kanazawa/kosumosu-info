@@ -504,7 +504,7 @@ let isImageProcessing=false;
 let isSubmitting=false;
 const stampPending={}; // 旧方式互換（未使用）
 // 新方式：set_reaction + debounce + version管理
-const reactionSync={}; // key=pid_stamp: {desired,confirmed,inFlight,version,timer}
+const reactionSync={}; // key=postId: {desiredStamp,confirmedStamp,inFlight,version,timer,retryCount}
 let reactionSession=0; // ログアウト時にインクリメント、古い通信を識別・無視
 let pendingSubmission=null;
 let seenPosts={};       // {pid:true} GASから取得した閲覧済み（現在ユーザー）
@@ -731,21 +731,36 @@ function init(){
 // ===== GAS連携 =====
 
 function applyReactions(reactionList){
-  // GASから取得したリアクションをreactions[postId]に反映
+  // GASから取得したリアクションをreactions[postId]に反映（1人1スタンプ・操作日時優先）
   if(!reactionList) return;
-  reactionList.forEach(r=>{
+  const ALLOWED=['👍','😊','👏','✅','❗'];
+  // personBestMap: key=pid_jigyosho_normName → {stamp, dateMs, idx}
+  const personBestMap={};
+  reactionList.forEach((r,idx)=>{
     const pid=String(r.postId||'').trim();
     if(!pid) return;
-    const gr=getR(pid);
     const stamp=String(r.stamp||'').trim();
-    if(!stamp) return;
-    if(!gr.stamps[stamp]) gr.stamps[stamp]=[];
-    // 重複チェック
-    const exists=gr.stamps[stamp].some(x=>
-      normalizeName(x.name)===normalizeName(r.name)&&
-      String(x.jigyosho||'').trim()===String(r.jigyosho||'').trim()
+    if(!stamp||!ALLOWED.includes(stamp)) return;
+    const rDateMs=(r.date?new Date(r.date).getTime():0);
+    const safeDateMs=isNaN(rDateMs)?0:rDateMs;
+    const personKey=pid+'_'+String(r.jigyosho||'').trim()+'_'+normalizeName(r.name||'');
+    const ex=personBestMap[personKey];
+    if(!ex){
+      personBestMap[personKey]={pid,stamp,name:r.name,jigyosho:r.jigyosho,dateMs:safeDateMs,idx};
+    } else {
+      if(safeDateMs>ex.dateMs||(safeDateMs===ex.dateMs&&idx>=ex.idx)){
+        personBestMap[personKey]={pid,stamp,name:r.name,jigyosho:r.jigyosho,dateMs:safeDateMs,idx};
+      }
+    }
+  });
+  Object.values(personBestMap).forEach(best=>{
+    const gr=getR(best.pid);
+    if(!gr.stamps[best.stamp]) gr.stamps[best.stamp]=[];
+    const exists=gr.stamps[best.stamp].some(x=>
+      normalizeName(x.name)===normalizeName(best.name)&&
+      String(x.jigyosho||'').trim()===String(best.jigyosho||'').trim()
     );
-    if(!exists) gr.stamps[stamp].push({name:r.name,jigyosho:r.jigyosho});
+    if(!exists) gr.stamps[best.stamp].push({name:best.name,jigyosho:best.jigyosho});
   });
 }
 
@@ -864,6 +879,7 @@ async function _fetchAndApply(){
       // applyReactions(stamps) → applyReads(reads) の順で上書きが発生しない
       reactions={}; // stamps・reads・comments をまとめてリセット
       if(d.reactions) applyReactions(d.reactions);
+      _syncReactionSyncFromStamps(); // reactionSync の confirmed/desired を最新stampsに同期
       if(d.reads)     applyReads(d.reads);
       if(d.seens)     applySeen(d.seens);
       if(d.comments)  applyComments(d.comments);
@@ -1221,57 +1237,64 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 
 function toggleStamp(pid, stamp) {
   const pid_str = String(pid).trim();
-  const key     = pid_str + '_' + stamp;
   const r       = getR(pid_str);
-  if (!r.stamps[stamp]) r.stamps[stamp] = [];
   const myName     = normalizeName(cu.name);
   const myJigyosho = String(cu.jigyosho || '').trim();
 
-  // 現在の画面上の状態
-  const curActive = r.stamps[stamp].some(x =>
-    normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
-  );
-  // 希望状態を反転
-  const desiredActive = !curActive;
+  // reactionSync はpostId単位（1人1スタンプ対応）
+  if (!reactionSync[pid_str]) {
+    // 初回作成時: reactions[pid_str].stamps から本人の現在スタンプを読み取る
+    // （再読み込み後、GASから取得済みのデータで正しく初期化するため）
+    let currentStamp = null;
+    STAMPS.forEach(s => {
+      const users = r.stamps[s] || [];
+      if (users.some(x => normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho)) {
+        currentStamp = s;
+      }
+    });
+    reactionSync[pid_str] = { desiredStamp: currentStamp, confirmedStamp: currentStamp, inFlight: false, version: 0, timer: null, retryCount: 0 };
+  }
+  const sync = reactionSync[pid_str];
 
-  // --- 楽観的更新（即時反映）---
-  if (desiredActive) {
-    if (!curActive) r.stamps[stamp].push({ name: cu.name, jigyosho: cu.jigyosho });
+  // 同じスタンプ→解除、別スタンプ→切り替え
+  if (sync.desiredStamp === stamp) {
+    sync.desiredStamp = null;
   } else {
-    const i = r.stamps[stamp].findIndex(x =>
+    sync.desiredStamp = stamp;
+  }
+  sync.retryCount = 0;
+
+  // --- 楽観的更新: 全スタンプから自分を除去 → desiredStampに追加 ---
+  STAMPS.forEach(s => {
+    if (!r.stamps[s]) r.stamps[s] = [];
+    const i = r.stamps[s].findIndex(x =>
       normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
     );
-    if (i >= 0) r.stamps[stamp].splice(i, 1);
+    if (i >= 0) r.stamps[s].splice(i, 1);
+  });
+  if (sync.desiredStamp) {
+    if (!r.stamps[sync.desiredStamp]) r.stamps[sync.desiredStamp] = [];
+    r.stamps[sync.desiredStamp].push({ name: cu.name, jigyosho: cu.jigyosho });
   }
 
-  // reactionSync を更新（新しい操作開始時にretryCountをリセット）
-  if (!reactionSync[key]) {
-    reactionSync[key] = { desired: desiredActive, confirmed: curActive, inFlight: false, version: 0, timer: null, retryCount: 0 };
-  } else {
-    reactionSync[key].desired = desiredActive;
-    reactionSync[key].retryCount = 0; // 新操作開始時にLOCK_BUSY再送回数をリセット
-  }
-
-  // 画面を即時反映（保存中マーク付き）
+  // 画面即時反映
   const rbEl = document.getElementById('rb-' + pid_str);
   if (rbEl) rbEl.innerHTML = makeReactionBar(pid_str);
 
-  // debounce: 300ms後に最終状態を送信
-  clearTimeout(reactionSync[key].timer);
-  reactionSync[key].timer = setTimeout(() => {
-    _sendReaction(pid_str, stamp, key);
-  }, 300);
+  // debounce 300ms
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(() => { _sendReaction(pid_str); }, 300);
 }
 
-async function _sendReaction(pid_str, stamp, key) {
-  const sync = reactionSync[key];
+async function _sendReaction(pid_str) {
+  const sync = reactionSync[pid_str];
   if (!sync) return;
   if (sync.inFlight) return;
 
-  const desiredNow  = sync.desired;
+  const desiredNow  = sync.desiredStamp;
   sync.inFlight     = true;
-  sync.version      = (sync.version  || 0) + 1;
-  sync.retryCount   = (sync.retryCount|| 0);   // LOCK_BUSY回数（新操作開始時は0にリセット済み）
+  sync.version      = (sync.version || 0) + 1;
+  sync.retryCount   = (sync.retryCount || 0);
   const myVersion   = sync.version;
   const mySession   = reactionSession;
   const myName      = normalizeName(cu.name);
@@ -1280,121 +1303,122 @@ async function _sendReaction(pid_str, stamp, key) {
   const rbEl = document.getElementById('rb-' + pid_str);
   if (rbEl) rbEl.innerHTML = makeReactionBar(pid_str);
 
-  // 共通: sendRequest（失敗時再送ロジックと共用）
-  async function sendRequest(active) {
+  // GASレスポンス（stamps全体）をローカルに反映
+  function applyConfirmed(d) {
+    if (mySession !== reactionSession) return;
+    if (myVersion !== (reactionSync[pid_str] && reactionSync[pid_str].version)) return;
+    const r = getR(pid_str);
+    // GAS v23: d.stamps = {stamp: {count, users[]}}
+    if (d.stamps) {
+      STAMPS.forEach(s => {
+        const sd = d.stamps[s];
+        r.stamps[s] = sd && sd.users ? sd.users.map(u => ({ name: u.name, jigyosho: u.jigyosho })) : [];
+      });
+    }
+    if (reactionSync[pid_str]) {
+      reactionSync[pid_str].confirmedStamp = d.myStamp || null;
+      reactionSync[pid_str].retryCount = 0;
+    }
+  }
+
+  async function sendRequest() {
     return fetchWithTimeout(GAS_URL, {
       method: 'POST',
       body: JSON.stringify({
-        type: 'set_reaction', postId: pid_str, stamp,
+        type: 'set_reaction', postId: pid_str,
+        desiredStamp: desiredNow,
         name: myName, jigyosho: myJigyosho,
-        active, date: new Date().toISOString()
+        date: new Date().toISOString()
       })
     }, 12000);
-  }
-
-  // セッション有効性を確認して画面を更新する
-  function applyConfirmed(d) {
-    if (mySession !== reactionSession) return; // ログアウト済みは無視
-    if (myVersion !== (reactionSync[key] && reactionSync[key].version)) return; // 古いversionは無視（厳密一致）
-    const r = getR(pid_str);
-    r.stamps[stamp] = (d.users || []).map(u => ({ name: u.name, jigyosho: u.jigyosho }));
-    if (reactionSync[key]) {
-      reactionSync[key].confirmed = !!d.active;
-      reactionSync[key].retryCount = 0;
-    }
   }
 
   try {
     let d;
     try {
-      d = await sendRequest(desiredNow);
+      d = await sendRequest();
     } catch(e1) {
-      // ─── 失敗1: 通信エラー・タイムアウト → 同じdesiredで1回再送 ───
-      // setReactionは冪等なので同じdesiredの再送は安全
       try {
-        d = await sendRequest(desiredNow);
+        d = await sendRequest();
       } catch(e2) {
-        // ─── 失敗2: 再送も失敗 → GASへ現在の本人の確定状態を問い合わせ ───
         try {
           const check = await fetchWithTimeout(GAS_URL, {
             method: 'POST',
             body: JSON.stringify({
-              type: 'check_reaction', postId: pid_str, stamp,
+              type: 'check_reaction', postId: pid_str,
+              stamp: desiredNow,
               name: myName, jigyosho: myJigyosho
             })
           }, 10000);
           if (check && check.status === 'ok') {
-            // 確認できた → その状態を反映
             applyConfirmed(check);
             return;
           }
-        } catch(e3) { /* 確認も失敗 → 下のエラー表示へ */ }
-        // 確認も失敗した場合のみ confirmedへ戻してエラー表示
-        _handleReactionError(pid_str, stamp, key, 'リアクションの保存を確認できませんでした。通信環境を確認してもう一度お試しください。');
+        } catch(e3) {}
+        _handleReactionError(pid_str, 'リアクションの保存を確認できませんでした。通信環境を確認してもう一度お試しください。');
         return;
       }
     }
 
-    // 通信成功時のレスポンス処理
     if (d && d.status === 'ok') {
-      if (mySession !== reactionSession) return; // ログアウト後は無視
-      applyConfirmed(d); // version厳密一致の場合のみ反映
+      if (mySession !== reactionSession) return;
+      applyConfirmed(d);
 
     } else if (d && d.status === 'retry' && d.code === 'LOCK_BUSY') {
-      // LOCK_BUSY: 最大2回・500ms→1000ms で再送
-      if (mySession === reactionSession && reactionSync[key]) {
-        const cnt = (reactionSync[key].retryCount || 0) + 1;
-        reactionSync[key].retryCount = cnt;
+      if (mySession === reactionSession && reactionSync[pid_str]) {
+        const cnt = (reactionSync[pid_str].retryCount || 0) + 1;
+        reactionSync[pid_str].retryCount = cnt;
         if (cnt <= 2) {
-          reactionSync[key].inFlight = false;
-          clearTimeout(reactionSync[key].timer);
+          reactionSync[pid_str].inFlight = false;
+          clearTimeout(reactionSync[pid_str].timer);
           const delay = cnt === 1 ? 500 : 1000;
-          reactionSync[key].timer = setTimeout(() => _sendReaction(pid_str, stamp, key), delay);
-          return; // finallyでinFlight=false（inFlightは既にfalseにした）
+          reactionSync[pid_str].timer = setTimeout(() => _sendReaction(pid_str), delay);
+          return;
         } else {
-          // 上限超過 → 保存中終了・エラー表示
-          _handleReactionError(pid_str, stamp, key, '現在ほかの操作を処理しています。少し待ってもう一度お試しください。');
-          reactionSync[key].retryCount = 0;
+          _handleReactionError(pid_str, '現在ほかの操作を処理しています。少し待ってもう一度お試しください。');
+          reactionSync[pid_str].retryCount = 0;
         }
       }
 
     } else {
-      _handleReactionError(pid_str, stamp, key, d && d.message);
+      _handleReactionError(pid_str, d && d.message);
     }
 
   } finally {
-    if (reactionSync[key]) reactionSync[key].inFlight = false;
+    if (reactionSync[pid_str]) reactionSync[pid_str].inFlight = false;
     const rbEl2 = document.getElementById('rb-' + pid_str);
     if (rbEl2) rbEl2.innerHTML = makeReactionBar(pid_str);
-    // desired と confirmed がずれていれば（成功後のdesired変更）再送
-    if (reactionSync[key] &&
-        reactionSync[key].desired !== reactionSync[key].confirmed &&
-        !reactionSync[key].inFlight) {
-      clearTimeout(reactionSync[key].timer);
-      reactionSync[key].timer = setTimeout(() => _sendReaction(pid_str, stamp, key), 100);
+    if (reactionSync[pid_str] &&
+        reactionSync[pid_str].desiredStamp !== reactionSync[pid_str].confirmedStamp &&
+        !reactionSync[pid_str].inFlight) {
+      clearTimeout(reactionSync[pid_str].timer);
+      reactionSync[pid_str].timer = setTimeout(() => _sendReaction(pid_str), 100);
     }
   }
 }
 
-
-function _handleReactionError(pid_str, stamp, key, errMsg) {
-  // ローカル状態を GAS確定値（confirmed）に戻す
-  const sync = reactionSync[key];
+function _handleReactionError(pid_str, errMsg) {
+  // ローカル状態を GAS確定値（confirmedStamp）に戻す（1人1スタンプ対応）
+  const sync = reactionSync[pid_str];
   if (!sync) return;
   const r = getR(pid_str);
   const myName     = normalizeName(cu.name);
   const myJigyosho = String(cu.jigyosho || '').trim();
-  // confirmedの状態に合わせてローカルを戻す
-  const wasConfirmed = sync.confirmed;
-  const idx = r.stamps[stamp] ? r.stamps[stamp].findIndex(x =>
-    normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
-  ) : -1;
-  if (wasConfirmed && idx < 0) {
-    r.stamps[stamp].push({ name: cu.name, jigyosho: cu.jigyosho });
-  } else if (!wasConfirmed && idx >= 0) {
-    r.stamps[stamp].splice(idx, 1);
+  const confirmedSt = sync.confirmedStamp;
+  // 全スタンプから自分を除去
+  STAMPS.forEach(s => {
+    if (!r.stamps[s]) return;
+    const i = r.stamps[s].findIndex(x =>
+      normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
+    );
+    if (i >= 0) r.stamps[s].splice(i, 1);
+  });
+  // confirmedStampがあれば復元
+  if (confirmedSt) {
+    if (!r.stamps[confirmedSt]) r.stamps[confirmedSt] = [];
+    r.stamps[confirmedSt].push({ name: cu.name, jigyosho: cu.jigyosho });
   }
-  sync.desired = wasConfirmed;
+  sync.desiredStamp = confirmedSt;
   // エラーメッセージを小さく表示（カード内）
   const errEl = document.getElementById('reaction-err-' + pid_str);
   if (errEl) {
@@ -1710,6 +1734,30 @@ function fmtDeadline(raw){
 
 function getR(pid){const k=String(pid).trim();if(!reactions[k])reactions[k]={stamps:{},reads:[],comments:[],statusHistory:[]};return reactions[k];}
 
+// GAS再取得後、reactionSyncのdesiredStamp/confirmedStampをstampsデータと同期する
+// inFlightが true のエントリは通信中なので触らない
+function _syncReactionSyncFromStamps() {
+  if (!cu) return;
+  const myName = normalizeName(cu.name);
+  const myJigyosho = String(cu.jigyosho || '').trim();
+  Object.keys(reactionSync).forEach(pid_str => {
+    const sync = reactionSync[pid_str];
+    if (!sync || sync.inFlight) return; // 通信中は手を加えない
+    const r = getR(pid_str);
+    let currentStamp = null;
+    STAMPS.forEach(s => {
+      const users = r.stamps[s] || [];
+      if (users.some(x => normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho)) {
+        currentStamp = s;
+      }
+    });
+    sync.confirmedStamp = currentStamp;
+    // desiredStamp: 通信中でないのに desired !== confirmed だった場合はconfirmedに合わせる
+    // （古い楽観的更新の残骸をクリア）
+    if (!sync.inFlight) sync.desiredStamp = currentStamp;
+  });
+}
+
 function makeReactionBar(pid){
   const pid_str=String(pid).trim();
   const r=getR(pid_str);
@@ -1730,12 +1778,11 @@ function makeReactionBar(pid){
   const stamps=STAMPS.map(s=>{
     const users=r.stamps[s]||[];
     const my=users.some(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);
-    const key=pid_str+'_'+s;
-    // 保存中マーク（inFlight中のみ表示、ボタン自体はdisabledにしない）
-    const sync=reactionSync[key];
-    const isSyncing=!!(sync&&sync.inFlight);
+    // 保存中マーク: postId単位のsync、desiredStampがこのスタンプの場合のみ⌛
+    const pidSync=reactionSync[pid_str];
+    const isSyncing=!!(pidSync&&pidSync.inFlight);
     const cnt=users.length;
-    const syncMark=isSyncing?`<span style="font-size:10px;color:var(--text3);margin-left:2px" title="保存中">⌛</span>`:'';
+    const syncMark=(isSyncing&&pidSync.desiredStamp===s)?`<span style="font-size:10px;color:var(--text3);margin-left:2px" title="保存中">⌛</span>`:'';
     return `<button class="stamp-btn${my?' active':''}" `+
       `onclick="toggleStamp('${pid_str}','${s}')" `+
       `aria-label="${s}リアクション ${cnt}人">`+
