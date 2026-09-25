@@ -732,39 +732,20 @@ function init(){
 
 function applyReactions(reactionList){
   // GASから取得したリアクションをreactions[postId]に反映
-  // 1人1投稿1種類: postId+jigyosho+name の最新1件のみ有効（シート下側=最新）
   if(!reactionList) return;
-  const ALLOWED=['👍','😊','👏','✅','❗'];
-  // まず投稿ごと・人ごとに最新スタンプを決定
-  const personBestMap={}; // key=pid_jigyosho_name -> {stamp, idx, dateMs}
-  reactionList.forEach((r,idx)=>{
+  reactionList.forEach(r=>{
     const pid=String(r.postId||'').trim();
-    const stamp=String(r.stamp||'').trim();
-    if(!pid||!ALLOWED.includes(stamp)) return;
-    const rName=normalizeName(r.name||'');
-    const rJigyosho=String(r.jigyosho||'').trim();
-    const personKey=pid+'_'+rJigyosho+'_'+rName;
-    // 最新判定: 操作日時が有効なら時刻値が新しい行を優先、同日時・空・不正はシート下側（大きいidx）を優先
-    const rDateMs = r.date ? new Date(r.date).getTime() : 0;
-    const safeDateMs = isNaN(rDateMs) ? 0 : rDateMs;
-    if(!personBestMap[personKey]){
-      personBestMap[personKey]={stamp,pid,name:r.name,jigyosho:rJigyosho,idx,dateMs:safeDateMs};
-    } else {
-      const ex=personBestMap[personKey];
-      if(safeDateMs > ex.dateMs || (safeDateMs === ex.dateMs && idx >= ex.idx)){
-        personBestMap[personKey]={stamp,pid,name:r.name,jigyosho:rJigyosho,idx,dateMs:safeDateMs};
-      }
-    }
-  });
-  // 決定した最新スタンプをreactions[pid].stampsに反映
-  Object.values(personBestMap).forEach(({pid,stamp,name,jigyosho})=>{
+    if(!pid) return;
     const gr=getR(pid);
+    const stamp=String(r.stamp||'').trim();
+    if(!stamp) return;
     if(!gr.stamps[stamp]) gr.stamps[stamp]=[];
+    // 重複チェック
     const exists=gr.stamps[stamp].some(x=>
-      normalizeName(x.name)===normalizeName(name)&&
-      String(x.jigyosho||'').trim()===jigyosho
+      normalizeName(x.name)===normalizeName(r.name)&&
+      String(x.jigyosho||'').trim()===String(r.jigyosho||'').trim()
     );
-    if(!exists) gr.stamps[stamp].push({name,jigyosho});
+    if(!exists) gr.stamps[stamp].push({name:r.name,jigyosho:r.jigyosho});
   });
 }
 
@@ -1240,39 +1221,35 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 
 function toggleStamp(pid, stamp) {
   const pid_str = String(pid).trim();
+  const key     = pid_str + '_' + stamp;
   const r       = getR(pid_str);
+  if (!r.stamps[stamp]) r.stamps[stamp] = [];
   const myName     = normalizeName(cu.name);
   const myJigyosho = String(cu.jigyosho || '').trim();
 
-  // reactionSync を投稿UUID単位で初期化
-  if (!reactionSync[pid_str]) {
-    reactionSync[pid_str] = { desiredStamp: null, confirmedStamp: null, inFlight: false, version: 0, timer: null, retryCount: 0 };
-  }
-  const sync = reactionSync[pid_str];
-
-  // 現在のdesiredStampを確認して新しいdesiredを決定
-  if (sync.desiredStamp === stamp) {
-    // 同じスタンプを押した → 解除
-    sync.desiredStamp = null;
-  } else {
-    // 別のスタンプまたは未選択 → そのスタンプを選択
-    sync.desiredStamp = stamp;
-  }
-  sync.retryCount = 0;
+  // 現在の画面上の状態
+  const curActive = r.stamps[stamp].some(x =>
+    normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
+  );
+  // 希望状態を反転
+  const desiredActive = !curActive;
 
   // --- 楽観的更新（即時反映）---
-  // 全スタンプから本人を除去してから、desiredStampがある場合のみ追加
-  const STAMPS_LIST = STAMPS;
-  STAMPS_LIST.forEach(s => {
-    if (!r.stamps[s]) r.stamps[s] = [];
-    const i = r.stamps[s].findIndex(x =>
+  if (desiredActive) {
+    if (!curActive) r.stamps[stamp].push({ name: cu.name, jigyosho: cu.jigyosho });
+  } else {
+    const i = r.stamps[stamp].findIndex(x =>
       normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
     );
-    if (i >= 0) r.stamps[s].splice(i, 1);
-  });
-  if (sync.desiredStamp) {
-    if (!r.stamps[sync.desiredStamp]) r.stamps[sync.desiredStamp] = [];
-    r.stamps[sync.desiredStamp].push({ name: cu.name, jigyosho: cu.jigyosho });
+    if (i >= 0) r.stamps[stamp].splice(i, 1);
+  }
+
+  // reactionSync を更新（新しい操作開始時にretryCountをリセット）
+  if (!reactionSync[key]) {
+    reactionSync[key] = { desired: desiredActive, confirmed: curActive, inFlight: false, version: 0, timer: null, retryCount: 0 };
+  } else {
+    reactionSync[key].desired = desiredActive;
+    reactionSync[key].retryCount = 0; // 新操作開始時にLOCK_BUSY再送回数をリセット
   }
 
   // 画面を即時反映（保存中マーク付き）
@@ -1280,21 +1257,21 @@ function toggleStamp(pid, stamp) {
   if (rbEl) rbEl.innerHTML = makeReactionBar(pid_str);
 
   // debounce: 300ms後に最終状態を送信
-  clearTimeout(sync.timer);
-  sync.timer = setTimeout(() => {
-    _sendReaction(pid_str);
+  clearTimeout(reactionSync[key].timer);
+  reactionSync[key].timer = setTimeout(() => {
+    _sendReaction(pid_str, stamp, key);
   }, 300);
 }
 
-
-async function _sendReaction(pid_str) {
-  const sync = reactionSync[pid_str];
+async function _sendReaction(pid_str, stamp, key) {
+  const sync = reactionSync[key];
   if (!sync) return;
   if (sync.inFlight) return;
 
-  const desiredNow  = sync.desiredStamp;
+  const desiredNow  = sync.desired;
   sync.inFlight     = true;
   sync.version      = (sync.version  || 0) + 1;
+  sync.retryCount   = (sync.retryCount|| 0);   // LOCK_BUSY回数（新操作開始時は0にリセット済み）
   const myVersion   = sync.version;
   const mySession   = reactionSession;
   const myName      = normalizeName(cu.name);
@@ -1303,143 +1280,435 @@ async function _sendReaction(pid_str) {
   const rbEl = document.getElementById('rb-' + pid_str);
   if (rbEl) rbEl.innerHTML = makeReactionBar(pid_str);
 
-  // 送信リクエスト（冪等: 同じdesiredを再送しても問題ない）
-  async function sendRequest() {
+  // 共通: sendRequest（失敗時再送ロジックと共用）
+  async function sendRequest(active) {
     return fetchWithTimeout(GAS_URL, {
       method: 'POST',
       body: JSON.stringify({
-        type: 'set_reaction',
-        postId: pid_str,
-        desiredStamp: desiredNow,
-        name: myName,
-        jigyosho: myJigyosho,
-        date: new Date().toISOString()
+        type: 'set_reaction', postId: pid_str, stamp,
+        name: myName, jigyosho: myJigyosho,
+        active, date: new Date().toISOString()
       })
     }, 12000);
   }
 
-  // GAS確定値を画面へ適用（version厳密一致の場合のみ）
+  // セッション有効性を確認して画面を更新する
   function applyConfirmed(d) {
-    if (mySession !== reactionSession) return;
-    if (myVersion !== (reactionSync[pid_str] && reactionSync[pid_str].version)) return;
-    if (!d || d.status !== 'ok') return;
+    if (mySession !== reactionSession) return; // ログアウト済みは無視
+    if (myVersion !== (reactionSync[key] && reactionSync[key].version)) return; // 古いversionは無視（厳密一致）
     const r = getR(pid_str);
-    // GAS確定値で全スタンプの人数・一覧を上書き
-    STAMPS.forEach(s => {
-      const confirmed = d.stamps && d.stamps[s];
-      r.stamps[s] = confirmed ? (confirmed.users || []).map(u => ({ name: u.name, jigyosho: u.jigyosho })) : [];
-    });
-    if (reactionSync[pid_str]) {
-      reactionSync[pid_str].confirmedStamp = d.myStamp || null;
-      reactionSync[pid_str].retryCount = 0;
+    r.stamps[stamp] = (d.users || []).map(u => ({ name: u.name, jigyosho: u.jigyosho }));
+    if (reactionSync[key]) {
+      reactionSync[key].confirmed = !!d.active;
+      reactionSync[key].retryCount = 0;
     }
-    const rbEl = document.getElementById('rb-' + pid_str);
-    if (rbEl) rbEl.innerHTML = makeReactionBar(pid_str);
   }
 
   try {
     let d;
     try {
-      d = await sendRequest();
+      d = await sendRequest(desiredNow);
     } catch(e1) {
-      // 失敗1: 通信エラー・タイムアウト → 同じdesiredで1回再送
+      // ─── 失敗1: 通信エラー・タイムアウト → 同じdesiredで1回再送 ───
+      // setReactionは冪等なので同じdesiredの再送は安全
       try {
-        d = await sendRequest();
+        d = await sendRequest(desiredNow);
       } catch(e2) {
-        // 失敗2: 再送も失敗 → GASへ現在の本人のリアクション状態を問い合わせ
+        // ─── 失敗2: 再送も失敗 → GASへ現在の本人の確定状態を問い合わせ ───
         try {
           const check = await fetchWithTimeout(GAS_URL, {
             method: 'POST',
             body: JSON.stringify({
-              type: 'check_reaction',
-              postId: pid_str,
-              name: myName,
-              jigyosho: myJigyosho
+              type: 'check_reaction', postId: pid_str, stamp,
+              name: myName, jigyosho: myJigyosho
             })
           }, 10000);
           if (check && check.status === 'ok') {
+            // 確認できた → その状態を反映
             applyConfirmed(check);
             return;
           }
-        } catch(e3) { /* 確認も失敗 → エラー表示 */ }
-        _handleReactionError(pid_str);
+        } catch(e3) { /* 確認も失敗 → 下のエラー表示へ */ }
+        // 確認も失敗した場合のみ confirmedへ戻してエラー表示
+        _handleReactionError(pid_str, stamp, key, 'リアクションの保存を確認できませんでした。通信環境を確認してもう一度お試しください。');
         return;
       }
     }
 
+    // 通信成功時のレスポンス処理
     if (d && d.status === 'ok') {
-      if (mySession !== reactionSession) return;
-      applyConfirmed(d);
+      if (mySession !== reactionSession) return; // ログアウト後は無視
+      applyConfirmed(d); // version厳密一致の場合のみ反映
 
     } else if (d && d.status === 'retry' && d.code === 'LOCK_BUSY') {
-      if (mySession === reactionSession && reactionSync[pid_str]) {
-        const cnt = (reactionSync[pid_str].retryCount || 0) + 1;
-        reactionSync[pid_str].retryCount = cnt;
+      // LOCK_BUSY: 最大2回・500ms→1000ms で再送
+      if (mySession === reactionSession && reactionSync[key]) {
+        const cnt = (reactionSync[key].retryCount || 0) + 1;
+        reactionSync[key].retryCount = cnt;
         if (cnt <= 2) {
-          reactionSync[pid_str].inFlight = false;
-          clearTimeout(reactionSync[pid_str].timer);
+          reactionSync[key].inFlight = false;
+          clearTimeout(reactionSync[key].timer);
           const delay = cnt === 1 ? 500 : 1000;
-          reactionSync[pid_str].timer = setTimeout(() => _sendReaction(pid_str), delay);
-          return;
+          reactionSync[key].timer = setTimeout(() => _sendReaction(pid_str, stamp, key), delay);
+          return; // finallyでinFlight=false（inFlightは既にfalseにした）
         } else {
-          _handleReactionError(pid_str, '現在ほかの操作を処理しています。少し待ってもう一度お試しください。');
-          reactionSync[pid_str].retryCount = 0;
+          // 上限超過 → 保存中終了・エラー表示
+          _handleReactionError(pid_str, stamp, key, '現在ほかの操作を処理しています。少し待ってもう一度お試しください。');
+          reactionSync[key].retryCount = 0;
         }
       }
+
     } else {
-      _handleReactionError(pid_str, d && d.message);
+      _handleReactionError(pid_str, stamp, key, d && d.message);
     }
 
   } finally {
-    if (reactionSync[pid_str]) {
-      reactionSync[pid_str].inFlight = false;
-      // desiredが変わっていたら再送（最新desiredを送信）
-      if (mySession === reactionSession &&
-          reactionSync[pid_str].desiredStamp !== reactionSync[pid_str].confirmedStamp &&
-          !reactionSync[pid_str].inFlight) {
-        clearTimeout(reactionSync[pid_str].timer);
-        reactionSync[pid_str].timer = setTimeout(() => _sendReaction(pid_str), 100);
-      }
-    }
+    if (reactionSync[key]) reactionSync[key].inFlight = false;
     const rbEl2 = document.getElementById('rb-' + pid_str);
     if (rbEl2) rbEl2.innerHTML = makeReactionBar(pid_str);
+    // desired と confirmed がずれていれば（成功後のdesired変更）再送
+    if (reactionSync[key] &&
+        reactionSync[key].desired !== reactionSync[key].confirmed &&
+        !reactionSync[key].inFlight) {
+      clearTimeout(reactionSync[key].timer);
+      reactionSync[key].timer = setTimeout(() => _sendReaction(pid_str, stamp, key), 100);
+    }
   }
 }
 
 
-function _handleReactionError(pid_str, errMsg) {
-  const sync = reactionSync[pid_str];
+function _handleReactionError(pid_str, stamp, key, errMsg) {
+  // ローカル状態を GAS確定値（confirmed）に戻す
+  const sync = reactionSync[key];
   if (!sync) return;
   const r = getR(pid_str);
   const myName     = normalizeName(cu.name);
   const myJigyosho = String(cu.jigyosho || '').trim();
-  // confirmedStampの状態に合わせてローカルを戻す
-  const confirmedSt = sync.confirmedStamp;
-  // 全スタンプから本人を除去
-  STAMPS.forEach(s => {
-    if (!r.stamps[s]) r.stamps[s] = [];
-    const i = r.stamps[s].findIndex(x =>
-      normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
-    );
-    if (i >= 0) r.stamps[s].splice(i, 1);
-  });
-  // confirmedStampがある場合は復元
-  if (confirmedSt) {
-    if (!r.stamps[confirmedSt]) r.stamps[confirmedSt] = [];
-    r.stamps[confirmedSt].push({ name: cu.name, jigyosho: cu.jigyosho });
+  // confirmedの状態に合わせてローカルを戻す
+  const wasConfirmed = sync.confirmed;
+  const idx = r.stamps[stamp] ? r.stamps[stamp].findIndex(x =>
+    normalizeName(x.name) === myName && String(x.jigyosho || '').trim() === myJigyosho
+  ) : -1;
+  if (wasConfirmed && idx < 0) {
+    r.stamps[stamp].push({ name: cu.name, jigyosho: cu.jigyosho });
+  } else if (!wasConfirmed && idx >= 0) {
+    r.stamps[stamp].splice(idx, 1);
   }
-  sync.desiredStamp = confirmedSt;
-  // エラーメッセージを小さく表示
+  sync.desired = wasConfirmed;
+  // エラーメッセージを小さく表示（カード内）
   const errEl = document.getElementById('reaction-err-' + pid_str);
   if (errEl) {
     errEl.textContent = 'リアクションの保存を確認できませんでした。通信環境を確認して、もう一度お試しください。';
     errEl.style.display = 'block';
     setTimeout(() => { if (errEl) errEl.style.display = 'none'; }, 5000);
   }
-  const rbEl = document.getElementById('rb-' + pid_str);
-  if (rbEl) rbEl.innerHTML = makeReactionBar(pid_str);
 }
 
+
+async function addComment(pid){
+  const pid_str=String(pid).trim();
+  const el=document.getElementById('cm-input-'+pid_str);
+  if(!el||!el.value.trim()) return;
+  const text=el.value.trim();
+  const now=new Date().toISOString();
+  const comment={name:cu.name,jigyosho:cu.jigyosho,text,date:now};
+  // 先に画面に表示
+  getR(pid_str).comments.push(comment);
+  el.value='';
+  document.getElementById('cm-list-'+pid_str).innerHTML=makeCommentList(pid_str);
+  // GASへ保存
+  try{
+    const res=await fetch(GAS_URL,{method:'POST',body:JSON.stringify({
+      type:'comment',postId:pid_str,
+      name:normalizeName(cu.name),
+      jigyosho:String(cu.jigyosho||'').trim(),
+      text,date:now
+    })});
+    const d=await res.json();
+    if(d.status!=='ok') throw new Error(d.message||'error');
+  }catch(e){
+    // 保存失敗 → 画面からも削除
+    const r=getR(pid_str);
+    const idx=r.comments.findIndex(x=>x.date===now&&x.text===text);
+    if(idx>=0) r.comments.splice(idx,1);
+    document.getElementById('cm-list-'+pid_str).innerHTML=makeCommentList(pid_str);
+    alert('コメントの保存に失敗しました。再度お試しください。');
+  }
+}
+
+function deletePost(id){
+  if(!confirm('この投稿を削除しますか？')) return;
+  const p=allPosts.find(x=>x.id===id);
+  // まずローカルから削除して即座に画面反映
+  allPosts=allPosts.filter(x=>x.id!==id);
+  renderBoard();updateSummary();
+  // GASに削除を送信し、完了後に最新データを再取得
+  const target=p&&p._src==='notice'?'notice':'post';
+  fetch(GAS_URL,{method:'POST',body:JSON.stringify({type:'delete',target,id})})
+    .then(()=>{
+      // 少し待ってからGASの最新データを再取得
+      setTimeout(()=>{
+        fetch(GAS_URL).then(r=>r.json()).then(d=>{
+          if(d.status==='ok'){
+            const posts=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
+            const notices=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'}));
+            allPosts=[...posts,...notices].sort((a,b)=>new Date(b.date)-new Date(a.date));
+            renderBoard();updateSummary();
+          }
+        }).catch(()=>{});
+      },1000);
+    }).catch(()=>{});
+}
+
+function makeCard(p){
+  const imp=p.importance||'normal';
+  const pid_str=String(p.id).trim();
+  const isConfirmed=!!confirmedReads[pid_str];
+  const isUnread=!isConfirmed;
+  const isSeen=!!seenPosts[pid_str]||isConfirmed;
+  const postAge=p.date?((Date.now()-new Date(p.date).getTime())/(1000*60*60*24)):999;
+  const isNew=!isSeen&&postAge<=7;
+  const urgClass=imp==='urgent'?'urgency-urgent':imp==='check'?'urgency-check':'';
+  const urgBdg=imp==='urgent'?'<span class="bdg urg-urgent">🔴 至急対応</span>':imp==='check'?'<span class="bdg urg-check">🟡 要確認</span>':'<span class="bdg urg-normal">通常</span>';
+  const cat=escapeHtml(p.category||'');
+  const catBdg=cat?`<span class="bdg cat-${cat}">${cat}</span>`:'';
+  const status=escapeHtml(p.status||'');
+  const statusBdg=status?`<span class="status-${status}">${status}</span>`:'';
+  const dlBdg=p.deadline?`<span class="deadline-badge">⏰ ${escapeHtml(fmtDeadline(p.deadline))}</span>`:'';
+  const showSt=p.action&&p.action!=='info';
+  const safeTitle=escapeHtml(p.title||'(タイトルなし)');
+  const safePoster=escapeHtml(p.poster||p.role||'');
+  const safeJigyosho=escapeHtml(p.jigyosho||'');
+  // 既存投稿の共有先から「自事業所」を除外して表示（DBは変更しない）
+  const rawShare=String(p.share||'');
+  const shareDisplay=rawShare.split('・').map(s=>s.trim())
+    .filter(s=>s&&s!=='自事業所').join('・')||'（投稿元のみ）';
+  const safeShare=escapeHtml(shareDisplay);
+  const safeBody=escapeHtml(p.body||'');
+  const safeDate=escapeHtml(fmtDate(p.date));
+  return `<div class="card${urgClass?' '+urgClass:''}${isUnread?' unread':''}" data-pid="${pid_str}">
+    <div class="card-summary" onclick="toggleCard(this)">
+      <div class="card-chevron" style="float:right">▼</div>
+      <div class="card-row1">${isNew?'<span class="new-badge">NEW</span>':''}${urgBdg}${catBdg}${statusBdg}${dlBdg}</div>
+      <div class="card-title">${safeTitle}</div>
+      <div class="card-meta"><span>${safeDate}</span><span>${safePoster}／${safeJigyosho}</span><span class="share-badge">→ ${safeShare}</span></div>
+    </div>
+    <div class="card-detail">
+      <div class="card-body-text">${safeBody}</div>
+      ${imgHtml(p)}
+      <div style="display:flex;justify-content:flex-end;padding-top:8px"><button class="btn-del" onclick="event.stopPropagation();deletePost('${pid_str}')">削除</button></div>
+      ${showSt?makeStatusBar(pid_str,p.status||'未対応'):''}
+      <div class="reaction-bar" id="rb-${pid_str}">${makeReactionBar(pid_str)}</div>
+      <div class="comment-area">
+        <div class="comment-head">💬 コメント（自事業所内）</div>
+        <div id="cm-list-${pid_str}">${makeCommentList(pid_str)}</div>
+        <div class="cm-input-wrap">
+          <input type="text" id="cm-input-${pid_str}" placeholder="コメントを入力..." onkeydown="if(event.key==='Enter')addComment('${pid_str}')">
+          <button class="cm-send" onclick="addComment('${pid_str}')">送信</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleCard(el){
+  const card=el.closest('.card');if(!card)return;
+  const detail=card.querySelector('.card-detail'),chev=card.querySelector('.card-chevron');
+  if(!detail)return;
+  const isOpen=detail.classList.contains('open');
+  detail.classList.toggle('open',!isOpen);
+  if(chev)chev.classList.toggle('open',!isOpen);
+  if(!isOpen){
+    const pid=card.dataset.pid;
+    if(pid){
+      newSeen.add(pid);
+      // 未閲覧なら閲覧済みとして記録しNEWバッジを即座に消す
+      if(!seenPosts[pid]&&!confirmedReads[pid]){
+        seenPosts[pid]=true;
+        const badge=card.querySelector('.new-badge');
+        if(badge) badge.remove();
+        markSeen(pid).catch(()=>{});
+      }
+    }
+  }
+}
+
+function updateUnreadCount(){
+  const n=visiblePosts().filter(p=>!confirmedReads[String(p.id).trim()]).length;
+  const btn=document.getElementById('tab-board-btn');
+  if(btn)btn.innerHTML=n>0?`📋<br>掲示板 <span class="tab-cnt">${n}</span>`:'📋<br>掲示板';
+}
+
+function updateSummary(){
+  const vp=visiblePosts();
+  document.getElementById('sum-unread').textContent=`未確認 ${vp.filter(p=>!confirmedReads[String(p.id).trim()]).length}件 →`;
+  document.getElementById('sum-action').textContent=`対応必要 ${vp.filter(p=>p.status==='未対応').length}件 →`;
+  document.getElementById('sum-progress').textContent=`対応中 ${vp.filter(p=>p.status==='対応中').length}件 →`;
+  updateUnreadCount();
+}
+
+function jumpFilter(type){
+  const map={unread:'unread',action:'action',progress:'doing'};
+  const val=map[type]||'all';
+  showTab('board');bFilter=val;
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  const chipMap={unread:'chip-unread',action:'chip-mitori',doing:'chip-doing'};
+  const t=document.getElementById(chipMap[val]||'chip-all');if(t)t.classList.add('on');
+  renderBoard();
+}
+
+function renderBoard(){
+  const list=document.getElementById('board-list');
+  if(!list) return;
+  if(loadingState==='init'||loadingState==='loading'){
+    list.innerHTML='<div class="loading-state"><div class="loading-spinner"></div><br>投稿を読み込んでいます…</div>';
+    return;
+  }
+  if(loadingState==='error'&&allPosts.length===0){
+    const ts=lastFetchTime?`<div class="error-sub">最終取得: ${fmtDate(lastFetchTime.toISOString())}</div>`:'';
+    list.innerHTML=`<div class="error-state"><div class="error-msg">情報を取得できませんでした</div>${ts}<button class="retry-btn" onclick="reloadAll()">再試行する</button></div>`;
+    return;
+  }
+  const fp=filteredPosts(),total=visiblePosts().length;
+  let empty='';
+  if(!fp.length){
+    if(loadingState==='error'){
+      const ts=lastFetchTime?`最終取得: ${fmtDate(lastFetchTime.toISOString())}（古いデータを表示中）`:'';
+      empty=`<div class="error-state"><div class="error-msg">最新情報を取得できませんでした</div><div class="error-sub">${ts}</div><button class="retry-btn" onclick="reloadAll()">再試行する</button></div>`;
+    } else if(total===0){
+      empty='<div class="empty-state"><div class="empty-icon">\U0001f4ed</div><div class="empty-msg">まだ投稿はありません</div><button class="empty-btn" onclick="showTab(&quot;post&quot;)">＋ 新規投稿する</button></div>';
+    } else {
+      empty='<div class="empty-state"><div class="empty-icon">\U0001f50d</div><div class="empty-msg">条件に一致する投稿はありません</div><button class="empty-btn" onclick="resetFilter()">絞り込みを解除する</button></div>';
+    }
+  }
+  list.innerHTML=fp.length?fp.map(makeCard).join(''):empty;
+}
+
+
+function showTab(t){
+  ['post','board'].forEach(n=>{const el=document.getElementById('tab-'+n);if(el)el.style.display=n===t?'':'none';});
+  document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',(el.getAttribute('onclick')||'').includes("'"+t+"'")));
+  if(t==='board'){renderBoard();updateSummary();}
+}
+
+function setFilter(el,val){document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');bFilter=val;renderBoard();}
+function toggleMoreFilters(){
+  const el=document.getElementById('filters-more'),btn=document.querySelector('.filter-toggle-btn');
+  const open=el.style.display!=='none';el.style.display=open?'none':'flex';if(btn)btn.textContent=open?'▼ 詳細':'▲ 閉じる';
+}
+function resetFilter(){bFilter='all';document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));const a=document.getElementById('chip-all');if(a)a.classList.add('on');renderBoard();}
+async function previewImg(prefix){
+  const f=document.getElementById(prefix+'-img').files[0];
+  if(!f) return;
+  isImageProcessing=true;
+  const btn=document.getElementById('post-btn');
+  if(btn) btn.disabled=true;
+  const nm=f.name.toLowerCase();
+  if(nm.endsWith('.heic')||nm.endsWith('.heif')){
+    alert('HEIC/HEIF形式は対応していません。\niPhoneは設定→カメラ→フォーマット→「互換性優先」に変更するか、JPEG/PNG画像を選択してください。');
+    document.getElementById(prefix+'-img').value=''; return;
+  }
+  if(f.type!=='image/jpeg'&&f.type!=='image/png'){
+    alert('JPEGまたはPNG形式の画像を選択してください。');
+    document.getElementById(prefix+'-img').value=''; return;
+  }
+  const prog=document.getElementById('img-progress');
+  if(prog) prog.style.display='block';
+  try{
+    const compressed=await compressImage(f);
+    pImgData=compressed;
+    document.getElementById(prefix+'-img-thumb').src=compressed;
+    document.getElementById(prefix+'-img-preview').style.display='block';
+  }catch(err){
+    alert('画像の処理に失敗しました：'+err.message+'\n別の画像を試してください。');
+    document.getElementById(prefix+'-img').value=''; pImgData=null;
+  }finally{
+    isImageProcessing=false;
+    const btn=document.getElementById('post-btn');
+    if(btn) btn.disabled=false;
+    if(prog) prog.style.display='none';
+  }
+}
+
+async function compressImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const MAX=1280;
+      let w=img.width,h=img.height;
+      if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      // EXIFはCanvasに描き直すことで除去される
+      const dataUrl=canvas.toDataURL('image/jpeg',0.75);
+      // 2MB上限チェック（base64は元の約1.37倍）
+      if(dataUrl.length>Math.ceil(2*1024*1024*1.37)){
+        reject(new Error('圧縮後も2MBを超えています。より小さい画像を使用してください。'));
+        return;
+      }
+      resolve(dataUrl);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
+    img.src=url;
+  });
+}
+function clearImg(p){pImgData=null;document.getElementById(p+'-img').value='';document.getElementById(p+'-img-thumb').src='';document.getElementById(p+'-img-preview').style.display='none';}
+function imgHtml(item){
+  if(item.imgData){
+    return `<div class="card-img"><img src="${item.imgData}" onclick="openModal(this.src)" onerror="handleImageError(this)"></div>`;
+  }
+  // fileIdが直接あればDrive URLを構築（GASが返した値を優先）
+  const fid=String(item.fileId||'').trim();
+  if(fid){
+    const url=escapeHtml('https://drive.google.com/file/d/'+fid+'/view');
+    return `<div class="card-img"><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;font-size:15px;color:var(--blue);font-weight:600">📷 添付画像を見る</a></div>`;
+  }
+  // fileIdがない場合はimgUrlから取得（既存投稿との後方互換）
+  if(item.imgUrl&&String(item.imgUrl).trim()){
+    const s=String(item.imgUrl);
+    if(s.includes('drive.google.com')){
+      const m1=s.match(/\/d\/([^\/\?]+)/),m2=s.match(/[?&]id=([^&]+)/);
+      const fidFromUrl=m1?m1[1]:m2?m2[1]:'';
+      const url=escapeHtml(fidFromUrl?('https://drive.google.com/file/d/'+fidFromUrl+'/view'):s);
+      return `<div class="card-img"><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;font-size:15px;color:var(--blue);font-weight:600">📷 添付画像を見る</a></div>`;
+    }
+    return '<div class="card-img"><span style="font-size:13px;color:var(--text3)">画像を表示できません</span></div>';
+  }
+  return '';
+}
+
+function fmtDate(raw){
+  if(!raw) return '';
+  try{
+    const d=new Date(raw);
+    if(isNaN(d.getTime())) return String(raw);
+    const mm=d.getMonth()+1,dd=d.getDate();
+    const hh=String(d.getHours()).padStart(2,'0'),min=String(d.getMinutes()).padStart(2,'0');
+    return window.innerWidth<480?(d.toDateString()===new Date().toDateString()?`今日 ${hh}:${min}`:`${mm}/${dd} ${hh}:${min}`):
+      `${d.getFullYear()}年${mm}月${dd}日 ${hh}:${min}`;
+  }catch(e){return String(raw);}
+}
+
+function fmtDeadline(raw){
+  if(!raw) return '';
+  try{
+    const d=new Date(raw);
+    if(isNaN(d.getTime())) return String(raw);
+    const now=new Date();now.setHours(0,0,0,0);
+    const diff=Math.ceil((d-now)/(1000*60*60*24));
+    const label=`${d.getMonth()+1}/${d.getDate()}`;
+    if(diff<0) return `期限切れ(${label})`;
+    if(diff===0) return `本日期限(${label})`;
+    if(diff<=3) return `残${diff}日(${label})`;
+    return `期限:${label}`;
+  }catch(e){return String(raw);}
+}
+
+function getR(pid){const k=String(pid).trim();if(!reactions[k])reactions[k]={stamps:{},reads:[],comments:[],statusHistory:[]};return reactions[k];}
 
 function makeReactionBar(pid){
   const pid_str=String(pid).trim();
@@ -1458,14 +1727,15 @@ function makeReactionBar(pid){
         `title="${readCnt}人が理解しました">${readCnt}人</span>`
       :`<span style="font-size:12px;color:var(--text3);margin-left:4px">0人</span>`
     );
-  const pidSync=reactionSync[pid_str];
-  const isSyncing=!!(pidSync&&pidSync.inFlight);
   const stamps=STAMPS.map(s=>{
     const users=r.stamps[s]||[];
     const my=users.some(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);
+    const key=pid_str+'_'+s;
+    // 保存中マーク（inFlight中のみ表示、ボタン自体はdisabledにしない）
+    const sync=reactionSync[key];
+    const isSyncing=!!(sync&&sync.inFlight);
     const cnt=users.length;
-    // 保存中マーク：選択中(desiredStamp)のスタンプにのみ表示
-    const syncMark=(isSyncing&&pidSync.desiredStamp===s)?`<span style="font-size:10px;color:var(--text3);margin-left:2px" title="保存中">⌛</span>`:'';
+    const syncMark=isSyncing?`<span style="font-size:10px;color:var(--text3);margin-left:2px" title="保存中">⌛</span>`:'';
     return `<button class="stamp-btn${my?' active':''}" `+
       `onclick="toggleStamp('${pid_str}','${s}')" `+
       `aria-label="${s}リアクション ${cnt}人">`+
