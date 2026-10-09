@@ -1547,7 +1547,7 @@ function toggleCard(el){
     if(pid){
       newSeen.add(pid);
       // 未閲覧なら閲覧済みとして記録しNEWバッジを即座に消す
-      if(!seenPosts[pid]&&!confirmedReads[pid]){
+      if(!seenPosts[pid]){
         seenPosts[pid]=true;
         const badge=card.querySelector('.new-badge');
         if(badge) badge.remove();
@@ -1761,42 +1761,23 @@ function _syncReactionSyncFromStamps() {
 function makeReactionBar(pid){
   const pid_str=String(pid).trim();
   const r=getR(pid_str);
-  const myName=normalizeName(cu.name);
-  const myJigyosho=String(cu.jigyosho||'').trim();
-  const isRead=confirmedReads[pid_str]||r.reads.some(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);
+  // 本人判定: confirmedReads のみ（applyReadsで氏名+事業所一致のみセット済み）
+  const isRead=!!confirmedReads[pid_str];
   const readCnt=r.reads.length;
-  // 「理解しました」ボタン部分（登録・解除）と人数部分（モーダル）を分離
-  const readBtn=
-    `<button class="read-btn${isRead?' done':''}" onclick="toggleRead('${pid_str}')" aria-label="${isRead?'理解済み':'理解しました'}">`+
-    `${isRead?'✓ 理解済み':'理解しました'}</button>`+
-    (readCnt>0
-      ?`<span class="read-count" onclick="event.stopPropagation();openReadModal('${pid_str}')" `+
-        `style="cursor:pointer;font-size:13px;font-weight:700;margin-left:4px;min-width:36px;display:inline-flex;align-items:center;padding:4px 6px;border-radius:12px;background:var(--pink-light,#fce8ef);color:var(--pink)" `+
-        `title="${readCnt}人が理解しました">${readCnt}人</span>`
-      :`<span style="font-size:12px;color:var(--text3);margin-left:4px">0人</span>`
-    );
-  const stamps=STAMPS.map(s=>{
-    const users=r.stamps[s]||[];
-    const my=users.some(x=>normalizeName(x.name)===myName&&String(x.jigyosho||'').trim()===myJigyosho);
-    // 保存中マーク: postId単位のsync、desiredStampがこのスタンプの場合のみ⌛
-    const pidSync=reactionSync[pid_str];
-    const isSyncing=!!(pidSync&&pidSync.inFlight);
-    const cnt=users.length;
-    const syncMark=(isSyncing&&pidSync.desiredStamp===s)?`<span style="font-size:10px;color:var(--text3);margin-left:2px" title="保存中">⌛</span>`:'';
-    return `<button class="stamp-btn${my?' active':''}" `+
-      `onclick="toggleStamp('${pid_str}','${s}')" `+
-      `aria-label="${s}リアクション ${cnt}人">`+
-      `${s}${syncMark}`+
-      (cnt>0
-        ?`<span class="stamp-count" onclick="event.stopPropagation();openReactionModal('${pid_str}','${s}')" `+
-          `style="cursor:pointer;min-width:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 2px" `+
-          `title="${cnt}人が押しています">${cnt}人</span>`
-        :`<span class="stamp-count" style="min-width:28px;text-align:center;color:var(--text3)">0</span>`
-      )+`</button>`;
-  }).join('');
+  // 確認ボタンと人数ボタンは完全に独立した要素（disabledが人数ボタンに影響しない）
+  const confirmBtn=isRead
+    ?`<button class="read-btn done" disabled aria-label="確認済み" style="cursor:default">✅ 確認済み</button>`
+    :`<button class="read-btn" onclick="toggleRead('${pid_str}')" aria-label="確認しました">確認しました</button>`;
+  // 人数ボタン: 0人はクリック不可・disabled属性で明示
+  const cntBtn=readCnt>0
+    ?`<button type="button" class="read-count" onclick="event.stopPropagation();openReadModal('${pid_str}')" `+
+      `style="cursor:pointer;font-size:13px;font-weight:700;margin-left:4px;min-width:36px;display:inline-flex;align-items:center;padding:4px 6px;border-radius:12px;background:var(--pink-light,#fce8ef);color:var(--pink);border:none" `+
+      `title="${readCnt}人が確認しました" aria-label="${readCnt}人が確認 一覧を開く">${readCnt}人</button>`
+    :`<span style="font-size:12px;color:var(--text3);margin-left:4px">0人</span>`;
   // エラー表示欄（非表示状態で常にDOM上に存在）
   const errDiv=`<div id="reaction-err-${pid_str}" style="display:none;font-size:12px;color:#991b1b;margin-top:4px"></div>`;
-  return readBtn+stamps+errDiv;
+  // スタンプ行は非表示（スタンプデータはGAS側に保持、UIからのみ廃止）
+  return confirmBtn+cntBtn+errDiv;
 }
 
 function makeStatusBar(pid,cur){
@@ -1821,32 +1802,93 @@ function makeCommentList(pid){
 
 function toggleRead(pid){
   const pid_str=String(pid).trim();
-  const isRead=confirmedReads[pid_str];
+  // 確認済みの場合は再押し無効（業務記録のため削除しない）
+  if(confirmedReads[pid_str]) return;
   const r=getR(pid_str);
-  if(isRead){
-    delete confirmedReads[pid_str];
-    const idx=r.reads.findIndex(x=>normalizeName(x.name)===normalizeName(cu.name)&&String(x.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
-    if(idx>=0)r.reads.splice(idx,1);
-  } else {
-    confirmedReads[pid_str]=true;
-    seenPosts[pid_str]=true; // 理解しました = 当然閲覧済み
-    // 重複なしで一覧に追加
-    if(!r._readKeys) r._readKeys=new Set();
-    const _rk=pid_str+'_'+String(cu.jigyosho||'').trim()+'_'+normalizeName(cu.name);
-    if(!r._readKeys.has(_rk)){
-      r._readKeys.add(_rk);
-      r.reads.push({name:cu.name,jigyosho:cu.jigyosho,date:new Date().toISOString()});
-    }
-    fetch(GAS_URL,{method:'POST',body:JSON.stringify({
-      type:'read',postId:pid_str,
-      name:normalizeName(cu.name),
-      jigyosho:String(cu.jigyosho||'').trim(),
-      date:new Date().toISOString()
-    })}).catch(()=>{});
+  // 送信開始時のセッション・ユーザー情報を固定（非同期応答が古い状態を変更しないため）
+  const mySession=reactionSession;
+  const capturedName=normalizeName(cu.name);
+  const capturedJigyosho=String(cu.jigyosho||'').trim();
+  function isCurrentReadSession(){
+    return(
+      mySession===reactionSession&&
+      cu&&
+      normalizeName(cu.name)===capturedName&&
+      String(cu.jigyosho||'').trim()===capturedJigyosho
+    );
   }
-  document.getElementById('rb-'+pid_str).innerHTML=makeReactionBar(pid_str);
+  // 楽観的更新：即座に確認済みへ
+  confirmedReads[pid_str]=true;
+  seenPosts[pid_str]=true; // 確認しました = 当然閲覧済み
+  // 一覧表示用に重複なしで追加（dateあり）
+  if(!r._readKeys) r._readKeys=new Set();
+  const _rk=pid_str+'_'+capturedJigyosho+'_'+capturedName;
+  const _now=new Date().toISOString();
+  if(!r._readKeys.has(_rk)){
+    r._readKeys.add(_rk);
+    r.reads.push({name:cu.name,jigyosho:cu.jigyosho,date:_now});
+  }
+  // UIを即座に更新
+  const rbEl=document.getElementById('rb-'+pid_str);
+  if(rbEl) rbEl.innerHTML=makeReactionBar(pid_str);
+  const card=document.querySelector('.card[data-pid="'+pid_str+'"]');
+  if(card) card.classList.remove('unread');
   updateUnreadCount();
   updateSummary();
+  // ロールバック共通処理（二重実行防止・セッション確認付き）
+  let rollbackDone=false;
+  function _rollback(){
+    if(rollbackDone) return;
+    if(!isCurrentReadSession()) return; // ログアウト/事業所変更後は古い通信を無視
+    rollbackDone=true;
+    delete confirmedReads[pid_str];
+    if(r._readKeys.has(_rk)){
+      r._readKeys.delete(_rk);
+      const idx=r.reads.findIndex(x=>x.date===_now&&normalizeName(x.name)===capturedName&&String(x.jigyosho||'').trim()===capturedJigyosho);
+      if(idx>=0) r.reads.splice(idx,1);
+    }
+    const rbEl2=document.getElementById('rb-'+pid_str);
+    if(rbEl2) rbEl2.innerHTML=makeReactionBar(pid_str);
+    const card2=document.querySelector('.card[data-pid="'+pid_str+'"]');
+    if(card2) card2.classList.add('unread');
+    updateUnreadCount(); updateSummary();
+    const errEl=document.getElementById('reaction-err-'+pid_str);
+    if(errEl){
+      errEl.textContent='確認状態を保存できませんでした。通信環境を確認してもう一度お試しください。';
+      errEl.style.display='block';
+      setTimeout(()=>{if(errEl)errEl.style.display='none';},5000);
+    }
+  }
+  // GAS保存（fetchWithTimeout: 15秒タイムアウト・LOCK_BUSY時1回再送）
+  const _payload=JSON.stringify({
+    type:'read',postId:pid_str,
+    name:capturedName,
+    jigyosho:capturedJigyosho,
+    date:_now
+  });
+  function _sendToGas(isRetry){
+    fetchWithTimeout(GAS_URL,{method:'POST',body:_payload},15000)
+      .then(d=>{
+        // セッション/ユーザーが変わっていたら古い通信を静かに破棄
+        if(!isCurrentReadSession()) return;
+        if(d&&d.status==='ok') return; // 成功（alreadyExists:true含む）
+        if(!isRetry&&d&&d.status==='retry'&&d.code==='LOCK_BUSY'){
+          // LOCK_BUSY: 1秒後に1回だけ再送（セッション確認後）
+          setTimeout(()=>{
+            if(!isCurrentReadSession()) return; // 再送前にログアウト等→破棄
+            _sendToGas(true);
+          },1000);
+          return;
+        }
+        // それ以外の失敗またはリトライ後も失敗: ロールバック
+        _rollback();
+      })
+      .catch(()=>{
+        // タイムアウト・不正JSON・HTTPエラー・通信エラー: ロールバック
+        _rollback();
+      });
+  }
+  _sendToGas(false);
 }
 
 function visiblePosts(){
@@ -1896,7 +1938,7 @@ function openReadModal(pid){
   const title=document.getElementById('reaction-modal-title');
   const list=document.getElementById('reaction-modal-list');
   if(!ov||!title||!list) return;
-  title.textContent='理解した人';
+  title.textContent='確認した人';
   list.innerHTML=users.map(u=>{
     const safeName=escapeHtml(u.name||'');
     const safeJigyosho=escapeHtml(u.jigyosho||'');
