@@ -1524,7 +1524,7 @@ function makeCard(p){
       ${showSt?makeStatusBar(pid_str,p.status||'未対応'):''}
       <div class="reaction-bar" id="rb-${pid_str}">${makeReactionBar(pid_str)}</div>
       <div class="comment-area">
-        <div class="comment-head">💬 コメント（自事業所内）</div>
+        <div class="comment-head">💬 共有コメント</div>
         <div id="cm-list-${pid_str}">${makeCommentList(pid_str)}</div>
         <div class="cm-input-wrap">
           <input type="text" id="cm-input-${pid_str}" placeholder="コメントを入力..." onkeydown="if(event.key==='Enter')addComment('${pid_str}')">
@@ -1795,9 +1795,9 @@ function changeStatus(pid,ns){
 
 function makeCommentList(pid){
   const r=getR(pid);
-  const vis=(r.comments||[]).filter(c=>String(c.jigyosho||'').trim()===String(cu.jigyosho||'').trim());
-  if(!vis.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
-  return vis.map(c=>`<div class="comment-item">${escapeHtml(c.text)}<div class="comment-meta">${escapeHtml(c.name)}・${escapeHtml(fmtDate(c.date))}</div></div>`).join('');
+  const comments=r.comments||[];
+  if(!comments.length) return '<div style="font-size:13px;color:var(--text3);padding:4px 0">まだコメントはありません</div>';
+  return comments.map(c=>`<div class="comment-item">${escapeHtml(c.text)}<div class="comment-meta">${escapeHtml(c.name)}／${escapeHtml(c.jigyosho||'')}・${escapeHtml(fmtDate(c.date))}</div></div>`).join('');
 }
 
 function toggleRead(pid){
