@@ -490,13 +490,14 @@ textarea{resize:vertical;min-height:90px;line-height:1.7}
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbwf8pjvqQYExXXz5uEEBHOG7cDtCEZHcszyIKo-0q6jNHJ0e0-uGO-3_q0bEgyrYJ1pmw/exec';
 const STAMPS=['👍','😊','👏','✅','❗'];
-const STATUS_LIST=['未対応','対応中','確認待ち','完了'];
+const STATUS_LIST=['未対応','対応中','確認待ち'];
 const JIGYOSHO_LIST=['こすもす居宅介護支援事業所金沢','こすもす訪問看護ステーション 金沢','つつじの家訪問看護ステーション','こすもすの家（看多機）','看多機つつじの家','こすもす福祉用具事業所','総務'];
 const PIN_CODE='10611812211611812257555759';
 
 let cu=null, bFilter='all', nextId=1;
 let allPosts=[], reactions={}, pImgData=null;
 let confirmedReads={};
+let completions={}; // {postId:{name,jigyosho,date}} 対応済み投稿の最新状態
 let newSeen=new Set();
 let pendingJigyosho=null;
 let loadingState='init';
@@ -506,6 +507,10 @@ const stampPending={}; // 旧方式互換（未使用）
 // 新方式：set_reaction + debounce + version管理
 const reactionSync={}; // key=postId: {desiredStamp,confirmedStamp,inFlight,version,timer,retryCount}
 let reactionSession=0; // ログアウト時にインクリメント、古い通信を識別・無視
+// 投稿UUID単位の連打防止Set
+let readPending=new Set();       // 確認ボタン送信中のpid
+let completionPending=new Set(); // 対応完了ボタン送信中のpid
+let statusPending=new Set();     // ステータス変更ボタン送信中のpid
 let pendingSubmission=null;
 let seenPosts={};       // {pid:true} GASから取得した閲覧済み（現在ユーザー）
 let seenSending=new Set(); // 送信中のpid
@@ -519,6 +524,14 @@ function normalizeName(s){
   return String(s||'').replace(/　/g,' ').trim();
 }
 
+function isOwnPost(post){
+  if(!post||!cu) return false;
+  const poster=normalizeName(post.poster||post.role||'');
+  const myName=normalizeName(cu.name||'');
+  const postJig=String(post.jigyosho||'').trim();
+  const myJig=String(cu.jigyosho||'').trim();
+  return poster===myName&&postJig===myJig;
+}
 function escapeHtml(s){
   return String(s||'')
     .replace(/&/g,'&amp;')
@@ -604,7 +617,8 @@ function doPinBack(){
 function startApp(jigyosho, name, level){
   cu={jigyosho, name, level};
   Object.values(reactionSync).forEach(s=>{ if(s&&s.timer) clearTimeout(s.timer); }); Object.keys(reactionSync).forEach(k=>delete reactionSync[k]); reactionSession++;
-  allPosts=[]; confirmedReads={}; seenPosts={}; seenSending=new Set(); seenSent=new Set(); reactions={}; newSeen=new Set(); loadingState='init';
+  allPosts=[]; confirmedReads={}; seenPosts={}; seenSending=new Set(); seenSent=new Set(); reactions={}; completions={}; newSeen=new Set(); loadingState='init';
+  readPending=new Set(); completionPending=new Set(); statusPending=new Set();
   // 保存処理（画面遷移より前に実行）
   const autoSave=document.getElementById('auto-save').checked;
   try{
@@ -640,7 +654,8 @@ function doLogout(){
   Object.values(reactionSync).forEach(s=>{ if(s&&s.timer) clearTimeout(s.timer); });
   Object.keys(reactionSync).forEach(k=>delete reactionSync[k]);
   reactionSession++; // セッション番号更新（ログアウト後の古いレスポンスを無視）
-  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); seenPosts={}; seenSending=new Set(); seenSent=new Set(); reactions={}; loadingState='init'; pendingSubmission=null; submitSucceeded=false;
+  cu=null; allPosts=[]; confirmedReads={}; newSeen=new Set(); seenPosts={}; seenSending=new Set(); seenSent=new Set(); reactions={}; completions={}; loadingState='init'; pendingSubmission=null; submitSucceeded=false;
+  readPending=new Set(); completionPending=new Set(); statusPending=new Set();
   document.getElementById('top-screen').style.display='';
   document.getElementById('main-screen').style.display='none';
   document.getElementById('summary-bar').style.display='none';
@@ -785,25 +800,36 @@ function applyReads(reads){
   if(!reads||!cu) return;
   const myName=normalizeName(cu.name);
   const myJigyosho=String(cu.jigyosho||'').trim();
-  // 一覧表示用: 投稿ごとに重複除去して全確認者を reactions[pid].reads に格納
-  // 本人判定用: confirmedReads[pid] = true
+  // GAS v25: readsは最新操作が「確認」の人だけを返す（取消済みは除外済み）
   reads.forEach(r=>{
     const pid=String(r.postId||'').trim();
     if(!pid) return;
     const rName=normalizeName(r.name||'');
     const rJigyosho=String(r.jigyosho||'').trim();
-    // 本人判定
+    // 本人判定（確認済み状態）
     if(rName===myName&&rJigyosho===myJigyosho){
       confirmedReads[pid]=true;
     }
     // 一覧表示: getR(pid).reads に重複なしで追加
     const gr=getR(pid);
-    const key=pid+'_'+rJigyosho+'_'+rName; // 一意キー
+    const key=pid+'_'+rJigyosho+'_'+rName;
     if(!gr._readKeys) gr._readKeys=new Set();
     if(!gr._readKeys.has(key)){
       gr._readKeys.add(key);
       gr.reads.push({name:r.name,jigyosho:rJigyosho,date:r.date||''});
     }
+  });
+}
+
+function applyCompletions(cList){
+  if(!cList) return;
+  cList.forEach(c=>{
+    const pid=String(c.postId||'').trim();
+    if(!pid) return;
+    completions[pid]={name:c.name,jigyosho:c.jigyosho,date:c.date||''};
+    // allPosts のステータスを「完了」に同期
+    const p=allPosts.find(x=>String(x.id).trim()===pid);
+    if(p) p.status='完了';
   });
 }
 
@@ -880,9 +906,11 @@ async function _fetchAndApply(){
       reactions={}; // stamps・reads・comments をまとめてリセット
       if(d.reactions) applyReactions(d.reactions);
       _syncReactionSyncFromStamps(); // reactionSync の confirmed/desired を最新stampsに同期
-      if(d.reads)     applyReads(d.reads);
-      if(d.seens)     applySeen(d.seens);
-      if(d.comments)  applyComments(d.comments);
+      if(d.reads)        applyReads(d.reads);
+      if(d.seens)        applySeen(d.seens);
+      if(d.comments)     applyComments(d.comments);
+      completions={};
+      if(d.completions)  applyCompletions(d.completions);
       loadingState='ok';
       lastFetchTime=new Date();
       retryCount=0;
@@ -911,8 +939,7 @@ async function reloadAll(){
   const btn=document.getElementById('reload-btn');
   btn.textContent='⏳'; btn.disabled=true;
   try{
-    const res=await fetch(GAS_URL);
-    const d=await res.json();
+    const d=await fetchWithTimeout(GAS_URL,{},45000);
     if(d.status==='ok'){
       const p=(d.posts||[]).map(x=>({...x,id:String(x.id||'').trim()||null,_src:'post'})).filter(x=>x.id);
       const n=(d.notices||[]).map(x=>({...x,id:String(x.id||'').trim()||null,category:x.category||'お知らせ',importance:x.importance||'normal',_src:'notice'})).filter(x=>x.id);
@@ -920,10 +947,12 @@ async function reloadAll(){
       confirmedReads={}; seenPosts={};
       // reactions内のreads/_readKeysもリセット（再読み込み時の二重蓄積防止）
       reactions={};
-      if(d.reactions) applyReactions(d.reactions);
-      if(d.reads)     applyReads(d.reads);
-      if(d.seens)     applySeen(d.seens);
-      if(d.comments)  applyComments(d.comments);
+      completions={};
+      if(d.reactions)   applyReactions(d.reactions);
+      if(d.reads)       applyReads(d.reads);
+      if(d.seens)       applySeen(d.seens);
+      if(d.comments)    applyComments(d.comments);
+      if(d.completions) applyCompletions(d.completions);
       loadingState='ok'; lastFetchTime=new Date(); retryCount=0;
     } else {
       loadingState='error'; // allPosts・confirmedReadsは変更しない
@@ -1487,11 +1516,13 @@ function deletePost(id){
 function makeCard(p){
   const imp=p.importance||'normal';
   const pid_str=String(p.id).trim();
+  const ownPost=isOwnPost(p); // 自分の投稿判定
   const isConfirmed=!!confirmedReads[pid_str];
-  const isUnread=!isConfirmed;
-  const isSeen=!!seenPosts[pid_str]||isConfirmed;
+  // 自投稿は未確認・NEW対象外
+  const isUnread=ownPost?false:!isConfirmed;
+  const isSeen=ownPost||!!seenPosts[pid_str]||isConfirmed;
   const postAge=p.date?((Date.now()-new Date(p.date).getTime())/(1000*60*60*24)):999;
-  const isNew=!isSeen&&postAge<=7;
+  const isNew=ownPost?false:(!isSeen&&postAge<=7);
   const urgClass=imp==='urgent'?'urgency-urgent':imp==='check'?'urgency-check':'';
   const urgBdg=imp==='urgent'?'<span class="bdg urg-urgent">🔴 至急対応</span>':imp==='check'?'<span class="bdg urg-check">🟡 要確認</span>':'<span class="bdg urg-normal">通常</span>';
   const cat=escapeHtml(p.category||'');
@@ -1521,7 +1552,7 @@ function makeCard(p){
       <div class="card-body-text">${safeBody}</div>
       ${imgHtml(p)}
       <div style="display:flex;justify-content:flex-end;padding-top:8px"><button class="btn-del" onclick="event.stopPropagation();deletePost('${pid_str}')">削除</button></div>
-      ${showSt?makeStatusBar(pid_str,p.status||'未対応'):''}
+      ${showSt?`<div id="sb-${pid_str}">${makeStatusBar(pid_str,p.status||'未対応')}</div>`:''}
       <div class="reaction-bar" id="rb-${pid_str}">${makeReactionBar(pid_str)}</div>
       <div class="comment-area">
         <div class="comment-head">💬 共有コメント</div>
@@ -1558,14 +1589,14 @@ function toggleCard(el){
 }
 
 function updateUnreadCount(){
-  const n=visiblePosts().filter(p=>!confirmedReads[String(p.id).trim()]).length;
+  const n=visiblePosts().filter(p=>!isOwnPost(p)&&!confirmedReads[String(p.id).trim()]).length;
   const btn=document.getElementById('tab-board-btn');
   if(btn)btn.innerHTML=n>0?`📋<br>掲示板 <span class="tab-cnt">${n}</span>`:'📋<br>掲示板';
 }
 
 function updateSummary(){
   const vp=visiblePosts();
-  document.getElementById('sum-unread').textContent=`未確認 ${vp.filter(p=>!confirmedReads[String(p.id).trim()]).length}件 →`;
+  document.getElementById('sum-unread').textContent=`未確認 ${vp.filter(p=>!isOwnPost(p)&&!confirmedReads[String(p.id).trim()]).length}件 →`;
   document.getElementById('sum-action').textContent=`対応必要 ${vp.filter(p=>p.status==='未対応').length}件 →`;
   document.getElementById('sum-progress').textContent=`対応中 ${vp.filter(p=>p.status==='対応中').length}件 →`;
   updateUnreadCount();
@@ -1761,36 +1792,269 @@ function _syncReactionSyncFromStamps() {
 function makeReactionBar(pid){
   const pid_str=String(pid).trim();
   const r=getR(pid_str);
-  // 本人判定: confirmedReads のみ（applyReadsで氏名+事業所一致のみセット済み）
+  const ownPost=isOwnPost(allPosts.find(x=>String(x.id).trim()===pid_str));
   const isRead=!!confirmedReads[pid_str];
   const readCnt=r.reads.length;
-  // 確認ボタンと人数ボタンは完全に独立した要素（disabledが人数ボタンに影響しない）
-  const confirmBtn=isRead
-    ?`<button class="read-btn done" disabled aria-label="確認済み" style="cursor:default">✅ 確認済み</button>`
-    :`<button class="read-btn" onclick="toggleRead('${pid_str}')" aria-label="確認しました">確認しました</button>`;
-  // 人数ボタン: 0人はクリック不可・disabled属性で明示
+  const rIsBusy=readPending.has(pid_str);
+  let confirmBtn;
+  if(ownPost){
+    // 自投稿: クリック不可の「✍️ 自分の投稿」表示
+    confirmBtn=`<button class="read-btn own-post" disabled aria-label="自分の投稿" style="cursor:default;opacity:0.7">✍️ 自分の投稿</button>`;
+  } else if(rIsBusy){
+    // 送信中: disabledで表示
+    const rLabel=isRead?'⌛ 確認済み':'⌛ 保存中…';
+    const rCls=isRead?'read-btn done':'read-btn';
+    confirmBtn=`<button class="${rCls}" disabled aria-label="送信中">${rLabel}</button>`;
+  } else if(isRead){
+    // 確認済み: クリックで取消ダイアログ
+    confirmBtn=`<button class="read-btn done" onclick="toggleRead('${pid_str}')" aria-label="確認済み（クリックで取消）">✅ 確認済み</button>`;
+  } else {
+    confirmBtn=`<button class="read-btn" onclick="toggleRead('${pid_str}')" aria-label="確認しました">確認しました</button>`;
+  }
+  // 人数ボタン（自投稿でも表示）
   const cntBtn=readCnt>0
     ?`<button type="button" class="read-count" onclick="event.stopPropagation();openReadModal('${pid_str}')" `+
       `style="cursor:pointer;font-size:13px;font-weight:700;margin-left:4px;min-width:36px;display:inline-flex;align-items:center;padding:4px 6px;border-radius:12px;background:var(--pink-light,#fce8ef);color:var(--pink);border:none" `+
       `title="${readCnt}人が確認しました" aria-label="${readCnt}人が確認 一覧を開く">${readCnt}人</button>`
     :`<span style="font-size:12px;color:var(--text3);margin-left:4px">0人</span>`;
-  // エラー表示欄（非表示状態で常にDOM上に存在）
   const errDiv=`<div id="reaction-err-${pid_str}" style="display:none;font-size:12px;color:#991b1b;margin-top:4px"></div>`;
-  // スタンプ行は非表示（スタンプデータはGAS側に保持、UIからのみ廃止）
   return confirmBtn+cntBtn+errDiv;
 }
 
 function makeStatusBar(pid,cur){
+  const pid_str=String(pid).trim();
   const r=getR(pid);
-  const hist=r.statusHistory.length?`<div class="status-history">最終更新：${escapeHtml(r.statusHistory[r.statusHistory.length-1])}</div>`:'';
-  const btns=STATUS_LIST.map(s=>`<button class="status-btn${cur===s?' active':''}" onclick="changeStatus('${pid}','${s}')">${s}</button>`).join('');
-  return `<div class="status-bar"><span class="status-label">対応状況：</span>${btns}</div>${hist}`;
+  // statusHistoryは再読み込みで消えるため表示しない（指摘5: 最小対応）
+  const hist='';
+  const sIsBusy=statusPending.has(pid_str);
+  // 対応済み（完了）中はステータスボタンを全て操作不可
+  const isCompleted=(cur==='完了'||!!completions[pid_str]);
+  const btns=STATUS_LIST.map(s=>{
+    const isActive=cur===s;
+    // 完了中: 全disabled / 保存中: 非アクティブをdisabled / アクティブは常にdisabled
+    const dis=(isCompleted||sIsBusy&&!isActive||isActive)?' disabled':'';
+    const label=sIsBusy&&isActive?'⌛ '+escapeHtml(s):escapeHtml(s);
+    return `<button class="status-btn${isActive?' active':''}${sIsBusy?' saving':''}${isCompleted?' disabled':''}" onclick="changeStatus('${escapeHtml(pid_str)}','${escapeHtml(s)}')"${dis}>${label}</button>`;
+  }).join('');
+  const completedNote=isCompleted?`<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:4px 8px;background:var(--green-light);border-radius:6px;">対応済みを取り消してからステータスを変更できます</div>`:'';
+
+  // 対応済みにするボタン
+  const comp=completions[pid_str];
+  const cIsBusy=completionPending.has(pid_str);
+  let compBtn='';
+  if(cur==='完了'&&comp){
+    const compName=escapeHtml(comp.name||'');
+    const compJig=escapeHtml(comp.jigyosho||'');
+    const compDate=escapeHtml(fmtDate(comp.date));
+    const cDis=cIsBusy?' disabled':'';
+    const cLabel=cIsBusy?'⌛ 保存中…':'✅ 対応済み';
+    compBtn=`<div class="completion-bar">
+      <button class="completion-btn done" onclick="toggleCompletion('${escapeHtml(pid_str)}')" title="クリックで取消"${cDis}>${cLabel}</button>
+      <span class="completion-meta">${compName}／${compJig}・${compDate}</span>
+    </div>`;
+  } else if(cur!=='完了'){
+    const cDis=cIsBusy?' disabled':'';
+    const cLabel=cIsBusy?'⌛ 保存中…':'対応済みにする';
+    compBtn=`<div class="completion-bar">
+      <button class="completion-btn" onclick="toggleCompletion('${escapeHtml(pid_str)}')"${cDis}>${cLabel}</button>
+    </div>`;
+  } else {
+    const cDis=cIsBusy?' disabled':'';
+    const cLabel=cIsBusy?'⌛ 保存中…':'✅ 対応済み';
+    compBtn=`<div class="completion-bar">
+      <button class="completion-btn done" onclick="toggleCompletion('${escapeHtml(pid_str)}')" title="クリックで取消"${cDis}>${cLabel}</button>
+    </div>`;
+  }
+  return `<div class="status-bar"><span class="status-label">対応状況：</span>${btns}</div>${completedNote}${hist}${compBtn}`;
 }
 
 function changeStatus(pid,ns){
-  const p=allPosts.find(x=>x.id===pid);if(p)p.status=ns;
-  getR(pid).statusHistory.push(`${cu.name}が「${ns}」に変更（${fmtDate(new Date().toISOString())}）`);
+  const pid_str=String(pid).trim();
+  const ALLOWED=['未対応','対応中','確認待ち'];
+  if(!ALLOWED.includes(ns)) return;
+  if(statusPending.has(pid_str)) return; // 連打防止
+  const p=allPosts.find(x=>String(x.id).trim()===pid_str);
+  if(!p) return;
+  // 対応済み（完了）中はステータス変更を拒否
+  if(p.status==='完了'||completions[pid_str]) return;
+  const mySession=reactionSession;
+  const capturedName=normalizeName(cu.name);
+  const capturedJigyosho=String(cu.jigyosho||'').trim();
+  // 【指摘1】開始時点のSetを固定: 旧通信が新セッションのPendingを操作しないよう
+  const pendingSetAtStart=statusPending;
+  function _isCS(){
+    return mySession===reactionSession&&cu&&
+      normalizeName(cu.name)===capturedName&&
+      String(cu.jigyosho||'').trim()===capturedJigyosho;
+  }
+  // 楽観的更新
+  const prevStatus=p.status;
+  const _now=new Date().toISOString();
+  p.status=ns;
+  getR(pid_str).statusHistory.push(`${cu.name}が「${ns}」に変更（${fmtDate(_now)}）`); // 生データ保持（表示時にescapeHtml）
+  pendingSetAtStart.add(pid_str);
   renderBoard();updateSummary();
+  const _payload=JSON.stringify({
+    type:'set_status',
+    postId:pid_str,
+    newStatus:ns,
+    name:capturedName,
+    jigyosho:capturedJigyosho,
+    date:_now
+  });
+  function _sendStatus(isRetry){
+    fetchWithTimeout(GAS_URL,{method:'POST',body:_payload},15000)
+      .then(d=>{
+        pendingSetAtStart.delete(pid_str);
+        if(!_isCS()) return; // セッション不一致: 旧Setの解除のみで終了
+        if(d&&d.status==='ok'){
+          if(typeof d.newStatus==='string'&&d.newStatus) p.status=d.newStatus;
+          renderBoard();updateSummary();
+          return;
+        }
+        if(!isRetry&&d&&d.status==='retry'&&d.code==='LOCK_BUSY'){
+          pendingSetAtStart.add(pid_str);
+          renderBoard();
+          setTimeout(()=>{
+            if(!_isCS()){pendingSetAtStart.delete(pid_str);return;}
+            _sendStatus(true);
+          },1000);
+          return;
+        }
+        // サーバー側ガードエラー
+        if(d&&d.status==='error'&&d.code==='USE_COMPLETION_API'){
+          p.status=prevStatus;
+          const sh0=getR(pid_str).statusHistory;
+          if(sh0.length>0) sh0.pop();
+          renderBoard();updateSummary();
+          alert('「完了」への変更は「対応済みにする」ボタンから操作してください。');
+          return;
+        }
+        if(d&&d.status==='error'&&d.code==='CANCEL_COMPLETION_FIRST'){
+          p.status=prevStatus;
+          const sh0=getR(pid_str).statusHistory;
+          if(sh0.length>0) sh0.pop();
+          renderBoard();updateSummary();
+          alert('対応済みを取り消してからステータスを変更してください。');
+          return;
+        }
+        // 失敗: ロールバック
+        p.status=prevStatus;
+        const sh=getR(pid_str).statusHistory;
+        if(sh.length>0) sh.pop();
+        renderBoard();updateSummary();
+        alert('ステータスを保存できませんでした。通信環境を確認してもう一度お試しください。');
+      })
+      .catch(()=>{
+        pendingSetAtStart.delete(pid_str);
+        if(!_isCS()) return; // セッション不一致: 旧Setの解除のみで終了
+        p.status=prevStatus;
+        const sh=getR(pid_str).statusHistory;
+        if(sh.length>0) sh.pop();
+        renderBoard();updateSummary();
+        alert('ステータスを保存できませんでした。通信環境を確認してもう一度お試しください。');
+      });
+  }
+  _sendStatus(false);
+}
+
+function _generateUUID(){
+  // crypto.randomUUID() 優先、非対応環境はフォールバック
+  if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'){
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+
+function toggleCompletion(pid){
+  const pid_str=String(pid).trim();
+  if(completionPending.has(pid_str)) return; // 連打防止
+  const p=allPosts.find(x=>String(x.id).trim()===pid_str);
+  if(!p) return;
+  const isCompleted=(p.status==='完了');
+  if(isCompleted){
+    if(!confirm('対応済みを取り消しますか？')) return;
+  }
+  const mySession=reactionSession;
+  const capturedName=normalizeName(cu.name);
+  const capturedJigyosho=String(cu.jigyosho||'').trim();
+  // 【指摘1】開始時点のSetを固定: 旧通信が新セッションのPendingを操作しないよう
+  const pendingSetAtStart=completionPending;
+  function isCurrentSession(){
+    return mySession===reactionSession&&cu&&
+      normalizeName(cu.name)===capturedName&&
+      String(cu.jigyosho||'').trim()===capturedJigyosho;
+  }
+  // 楽観的更新
+  const prevStatus=p.status;
+  const prevCompletion=completions[pid_str]?{...completions[pid_str]}:null;
+  const _now=new Date().toISOString();
+  const operationId=_generateUUID(); // 再送冪等用
+  if(!isCompleted){
+    p.status='完了';
+    completions[pid_str]={name:cu.name,jigyosho:cu.jigyosho,date:_now};
+  } else {
+    // 取消時は楽観的に'未対応'を仮置き。GAS応答後にd.newStatusで正しく上書き
+    p.status='未対応';
+    delete completions[pid_str];
+  }
+  pendingSetAtStart.add(pid_str);
+  renderBoard();updateSummary();
+  let rollbackDone=false;
+  function _rollbackCompletion(){
+    if(rollbackDone) return;
+    rollbackDone=true;
+    pendingSetAtStart.delete(pid_str);
+    if(!isCurrentSession()) return; // セッション不一致: 旧Setの解除のみで終了
+    p.status=prevStatus;
+    if(prevCompletion) completions[pid_str]=prevCompletion;
+    else delete completions[pid_str];
+    renderBoard();updateSummary();
+    alert('対応状態を保存できませんでした。通信環境を確認してもう一度お試しください。');
+  }
+  const _payload=JSON.stringify({
+    type:'set_completion_state',
+    operationId,
+    postId:pid_str,
+    completed:!isCompleted,
+    previousStatus:prevStatus,
+    name:capturedName,
+    jigyosho:capturedJigyosho,
+    date:_now
+  });
+  function _sendCompletion(isRetry){
+    fetchWithTimeout(GAS_URL,{method:'POST',body:_payload},15000)
+      .then(d=>{
+        if(!isCurrentSession()){pendingSetAtStart.delete(pid_str);return;} // 旧Setのみ解除
+        if(d&&d.status==='ok'){
+          pendingSetAtStart.delete(pid_str);
+          // GASから返された正式な状態でp.statusを確定
+          if(typeof d.newStatus==='string'&&d.newStatus) p.status=d.newStatus;
+          // 完了時はGASから返された対応者情報で更新
+          if(d.completed&&d.completedBy&&d.completedAt){
+            completions[pid_str]={
+              name:d.completedBy.name||capturedName,
+              jigyosho:d.completedBy.jigyosho||capturedJigyosho,
+              date:d.completedAt
+            };
+          } else if(!d.completed){
+            delete completions[pid_str];
+          }
+          // 全画面同期: カード上部・サマリー・フィルター一括更新
+          renderBoard();updateSummary();
+          return;
+        }
+        if(!isRetry&&d&&d.status==='retry'&&d.code==='LOCK_BUSY'){
+          setTimeout(()=>{if(!isCurrentSession()){pendingSetAtStart.delete(pid_str);return;}_sendCompletion(true);},1000);
+          return;
+        }
+        _rollbackCompletion();
+      })
+      .catch(()=>{_rollbackCompletion();});
+  }
+  _sendCompletion(false);
 }
 
 function makeCommentList(pid){
@@ -1802,56 +2066,90 @@ function makeCommentList(pid){
 
 function toggleRead(pid){
   const pid_str=String(pid).trim();
-  // 確認済みの場合は再押し無効（業務記録のため削除しない）
-  if(confirmedReads[pid_str]) return;
+  if(readPending.has(pid_str)) return; // 連打防止
+  // 自投稿は無視
+  const p=allPosts.find(x=>String(x.id).trim()===pid_str);
+  if(p&&isOwnPost(p)) return;
   const r=getR(pid_str);
-  // 送信開始時のセッション・ユーザー情報を固定（非同期応答が古い状態を変更しないため）
+  const isCurrentlyConfirmed=!!confirmedReads[pid_str];
+  // 確認済みを再押しした場合: 取消確認ダイアログ
+  if(isCurrentlyConfirmed){
+    if(!confirm('確認済みを取り消しますか？')) return;
+  }
   const mySession=reactionSession;
   const capturedName=normalizeName(cu.name);
   const capturedJigyosho=String(cu.jigyosho||'').trim();
+  // 【指摘1】開始時点のSetを固定: 旧通信が新セッションのPendingを操作しないよう
+  const pendingSetAtStart=readPending;
   function isCurrentReadSession(){
     return(
-      mySession===reactionSession&&
-      cu&&
+      mySession===reactionSession&&cu&&
       normalizeName(cu.name)===capturedName&&
       String(cu.jigyosho||'').trim()===capturedJigyosho
     );
   }
-  // 楽観的更新：即座に確認済みへ
-  confirmedReads[pid_str]=true;
-  seenPosts[pid_str]=true; // 確認しました = 当然閲覧済み
-  // 一覧表示用に重複なしで追加（dateあり）
-  if(!r._readKeys) r._readKeys=new Set();
-  const _rk=pid_str+'_'+capturedJigyosho+'_'+capturedName;
   const _now=new Date().toISOString();
-  if(!r._readKeys.has(_rk)){
-    r._readKeys.add(_rk);
-    r.reads.push({name:cu.name,jigyosho:cu.jigyosho,date:_now});
+  const _rk=pid_str+'_'+capturedJigyosho+'_'+capturedName;
+  if(!r._readKeys) r._readKeys=new Set();
+  // 取消ロールバック用: 取消前の確認データを保存（【6】確認取消ロールバック時の日時修正）
+  let prevReadEntry=null;
+  if(isCurrentlyConfirmed){
+    const existingIdx=r.reads.findIndex(x=>normalizeName(x.name)===capturedName&&String(x.jigyosho||'').trim()===capturedJigyosho);
+    if(existingIdx>=0) prevReadEntry={...r.reads[existingIdx]};
   }
-  // UIを即座に更新
-  const rbEl=document.getElementById('rb-'+pid_str);
-  if(rbEl) rbEl.innerHTML=makeReactionBar(pid_str);
-  const card=document.querySelector('.card[data-pid="'+pid_str+'"]');
-  if(card) card.classList.remove('unread');
-  updateUnreadCount();
-  updateSummary();
-  // ロールバック共通処理（二重実行防止・セッション確認付き）
-  let rollbackDone=false;
-  function _rollback(){
-    if(rollbackDone) return;
-    if(!isCurrentReadSession()) return; // ログアウト/事業所変更後は古い通信を無視
-    rollbackDone=true;
+  if(!isCurrentlyConfirmed){
+    // 確認: 楽観的更新
+    confirmedReads[pid_str]=true;
+    seenPosts[pid_str]=true;
+    if(!r._readKeys.has(_rk)){
+      r._readKeys.add(_rk);
+      r.reads.push({name:cu.name,jigyosho:cu.jigyosho,date:_now});
+    }
+  } else {
+    // 取消: 楽観的更新
     delete confirmedReads[pid_str];
     if(r._readKeys.has(_rk)){
       r._readKeys.delete(_rk);
-      const idx=r.reads.findIndex(x=>x.date===_now&&normalizeName(x.name)===capturedName&&String(x.jigyosho||'').trim()===capturedJigyosho);
+      const idx=r.reads.findIndex(x=>normalizeName(x.name)===capturedName&&String(x.jigyosho||'').trim()===capturedJigyosho);
       if(idx>=0) r.reads.splice(idx,1);
+    }
+  }
+  pendingSetAtStart.add(pid_str);
+  const rbEl=document.getElementById('rb-'+pid_str);
+  if(rbEl) rbEl.innerHTML=makeReactionBar(pid_str);
+  const card=document.querySelector('.card[data-pid="'+pid_str+'"]');
+  if(card) card.classList.toggle('unread',!confirmedReads[pid_str]);
+  updateUnreadCount();updateSummary();
+  let rollbackDone=false;
+  function _rollback(){
+    if(rollbackDone) return;
+    rollbackDone=true;
+    pendingSetAtStart.delete(pid_str);
+    if(!isCurrentReadSession()) return; // セッション不一致: 旧Setの解除のみで終了
+    // 元の状態へ戻す
+    if(!isCurrentlyConfirmed){
+      // 確認→失敗: 未確認へ戻す
+      delete confirmedReads[pid_str];
+      if(r._readKeys.has(_rk)){
+        r._readKeys.delete(_rk);
+        const idx=r.reads.findIndex(x=>x.date===_now&&normalizeName(x.name)===capturedName&&String(x.jigyosho||'').trim()===capturedJigyosho);
+        if(idx>=0) r.reads.splice(idx,1);
+      }
+    } else {
+      // 取消→失敗: 取消前の氏名・事業所・確認日時をそのまま復元（【6】）
+      confirmedReads[pid_str]=true;
+      if(!r._readKeys.has(_rk)){
+        r._readKeys.add(_rk);
+        // prevReadEntry に元の日時が保存されている場合はそれを使用
+        const restoreEntry=prevReadEntry||{name:cu.name,jigyosho:cu.jigyosho,date:_now};
+        r.reads.push(restoreEntry);
+      }
     }
     const rbEl2=document.getElementById('rb-'+pid_str);
     if(rbEl2) rbEl2.innerHTML=makeReactionBar(pid_str);
     const card2=document.querySelector('.card[data-pid="'+pid_str+'"]');
-    if(card2) card2.classList.add('unread');
-    updateUnreadCount(); updateSummary();
+    if(card2) card2.classList.toggle('unread',!confirmedReads[pid_str]);
+    updateUnreadCount();updateSummary();
     const errEl=document.getElementById('reaction-err-'+pid_str);
     if(errEl){
       errEl.textContent='確認状態を保存できませんでした。通信環境を確認してもう一度お試しください。';
@@ -1859,9 +2157,10 @@ function toggleRead(pid){
       setTimeout(()=>{if(errEl)errEl.style.display='none';},5000);
     }
   }
-  // GAS保存（fetchWithTimeout: 15秒タイムアウト・LOCK_BUSY時1回再送）
   const _payload=JSON.stringify({
-    type:'read',postId:pid_str,
+    type:'set_read_state',
+    postId:pid_str,
+    active:!isCurrentlyConfirmed,
     name:capturedName,
     jigyosho:capturedJigyosho,
     date:_now
@@ -1869,24 +2168,26 @@ function toggleRead(pid){
   function _sendToGas(isRetry){
     fetchWithTimeout(GAS_URL,{method:'POST',body:_payload},15000)
       .then(d=>{
-        // セッション/ユーザーが変わっていたら古い通信を静かに破棄
-        if(!isCurrentReadSession()) return;
-        if(d&&d.status==='ok') return; // 成功（alreadyExists:true含む）
-        if(!isRetry&&d&&d.status==='retry'&&d.code==='LOCK_BUSY'){
-          // LOCK_BUSY: 1秒後に1回だけ再送（セッション確認後）
-          setTimeout(()=>{
-            if(!isCurrentReadSession()) return; // 再送前にログアウト等→破棄
-            _sendToGas(true);
-          },1000);
+        if(!isCurrentReadSession()){pendingSetAtStart.delete(pid_str);return;} // 旧Setのみ解除
+        if(d&&d.status==='ok'){
+          pendingSetAtStart.delete(pid_str);
+          // GASから最新の確認者一覧が返された場合は同期
+          if(d.users&&Array.isArray(d.users)){
+            // r.reads を GAS の最新状態で上書き
+            r.reads=d.users.map(u=>({name:u.name,jigyosho:u.jigyosho,date:u.date||''}));
+            r._readKeys=new Set(r.reads.map(u=>pid_str+'_'+String(u.jigyosho||'').trim()+'_'+normalizeName(u.name)));
+            const rbEl3=document.getElementById('rb-'+pid_str);
+            if(rbEl3) rbEl3.innerHTML=makeReactionBar(pid_str);
+          }
           return;
         }
-        // それ以外の失敗またはリトライ後も失敗: ロールバック
+        if(!isRetry&&d&&d.status==='retry'&&d.code==='LOCK_BUSY'){
+          setTimeout(()=>{if(!isCurrentReadSession()){pendingSetAtStart.delete(pid_str);return;}_sendToGas(true);},1000);
+          return;
+        }
         _rollback();
       })
-      .catch(()=>{
-        // タイムアウト・不正JSON・HTTPエラー・通信エラー: ロールバック
-        _rollback();
-      });
+      .catch(()=>{_rollback();});
   }
   _sendToGas(false);
 }
@@ -1914,7 +2215,7 @@ function filteredPosts(){
   let fp=visiblePosts();
   const kw=(document.getElementById('search-input')?.value||'').trim().toLowerCase();
   if(kw) fp=fp.filter(p=>(p.title||'').toLowerCase().includes(kw)||(p.body||'').toLowerCase().includes(kw)||(p.poster||'').toLowerCase().includes(kw));
-  if(bFilter==='unread') fp=fp.filter(p=>!confirmedReads[String(p.id).trim()]);
+  if(bFilter==='unread') fp=fp.filter(p=>!isOwnPost(p)&&!confirmedReads[String(p.id).trim()]);
   else if(bFilter==='urgent') fp=fp.filter(p=>p.importance==='urgent');
   else if(bFilter==='action') fp=fp.filter(p=>p.status==='未対応');
   else if(bFilter==='doing') fp=fp.filter(p=>p.status==='対応中');
